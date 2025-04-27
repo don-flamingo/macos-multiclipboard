@@ -8,6 +8,7 @@ class ClipboardManagerWindow: NSWindowController {
     private var hotKey: HotKey?
     private var clipboardMonitorTimer: Timer?
     private var previousFrontmostApp: NSRunningApplication?
+    private var statusLabel: NSTextField!
     
     init() {
         // Create a borderless panel instead of a standard window
@@ -87,6 +88,7 @@ class ClipboardManagerWindow: NSWindowController {
         // Select the first row if available
         if tableView.numberOfRows > 0 {
             tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+            updateStatusLabel("Item copied to clipboard")
         }
     }
     
@@ -97,19 +99,38 @@ class ClipboardManagerWindow: NSWindowController {
         if newRow != currentRow && newRow >= 0 && newRow < clipboardItems.count {
             tableView.selectRowIndexes(IndexSet(integer: newRow), byExtendingSelection: false)
             tableView.scrollRowToVisible(newRow)
+            updateStatusLabel("Item copied to clipboard")
         }
+    }
+    
+    private func updateStatusLabel(_ message: String) {
+        statusLabel.stringValue = message
+        
+        // Flash the status label briefly
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.3
+            statusLabel.animator().textColor = NSColor.systemGreen
+        }, completionHandler: {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+                NSAnimationContext.runAnimationGroup({ context in
+                    context.duration = 0.3
+                    self.statusLabel.animator().textColor = NSColor.secondaryLabelColor
+                })
+            }
+        })
     }
     
     private func handleEnterKey() {
         let selectedRow = tableView.selectedRow
         if selectedRow >= 0 && selectedRow < clipboardItems.count {
             let item = clipboardItems[selectedRow]
-            copyToClipboard(item.content)
+            copyToClipboard(item)
+            updateStatusLabel("Item copied! Press ⌘V to paste in your app")
             
             // Store a local reference to previous app
             let targetApp = previousFrontmostApp
             
-            // Close our window first
+            // Close our window
             closeWindow()
             
             // Return to the original app
@@ -154,12 +175,20 @@ class ClipboardManagerWindow: NSWindowController {
         contentView.addSubview(label)
         
         // Create instructions label
-        let instructionsLabel = NSTextField(labelWithString: "Select an item and press ⌘V in your app to paste")
+        let instructionsLabel = NSTextField(labelWithString: "Use ↑/↓ keys to navigate, Enter to select")
         instructionsLabel.translatesAutoresizingMaskIntoConstraints = false
         instructionsLabel.font = NSFont.systemFont(ofSize: 12)
         instructionsLabel.textColor = NSColor.secondaryLabelColor
         instructionsLabel.alignment = .center
         contentView.addSubview(instructionsLabel)
+        
+        // Create status label
+        statusLabel = NSTextField(labelWithString: "")
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        statusLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        statusLabel.textColor = NSColor.secondaryLabelColor
+        statusLabel.alignment = .center
+        contentView.addSubview(statusLabel)
         
         // Create table view with proper key handling
         let scrollView = NSScrollView()
@@ -202,7 +231,11 @@ class ClipboardManagerWindow: NSWindowController {
             instructionsLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             instructionsLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             
-            scrollView.topAnchor.constraint(equalTo: instructionsLabel.bottomAnchor, constant: 10),
+            statusLabel.topAnchor.constraint(equalTo: instructionsLabel.bottomAnchor, constant: 2),
+            statusLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            statusLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            
+            scrollView.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 10),
             scrollView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 10),
             scrollView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -10),
             scrollView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -10)
@@ -228,34 +261,50 @@ class ClipboardManagerWindow: NSWindowController {
     }
     
     private func checkForPasteboardChanges() {
-        guard let items = NSPasteboard.general.pasteboardItems else { return }
-        
-        for item in items {
-            if let string = item.string(forType: .string) {
-                if !clipboardItems.contains(where: { $0.content == string }) {
-                    let newItem = ClipboardItem(content: string, timestamp: Date())
-                    clipboardItems.insert(newItem, at: 0)
-                    
-                    // Limit history size
-                    if clipboardItems.count > 20 {
-                        clipboardItems.removeLast()
+        if let newItem = ClipboardItem.fromPasteboard(NSPasteboard.general) {
+            // Check if we already have this item
+            let isAlreadyPresent: Bool
+            
+            switch newItem.type {
+            case .text:
+                // For text, compare the actual text content
+                isAlreadyPresent = clipboardItems.contains { 
+                    $0.type == .text && $0.textContent == newItem.textContent 
+                }
+                
+            case .image, .webImage:
+                // For images, compare by size/dimensions for a quick check
+                isAlreadyPresent = clipboardItems.contains { 
+                    if $0.type == .image || $0.type == .webImage, 
+                       let existingImage = $0.imageContent,
+                       let newImage = newItem.imageContent {
+                        return existingImage.size == newImage.size
                     }
-                    
-                    tableView.reloadData()
-                    
-                    // Auto-select the first (most recent) item
-                    if !clipboardItems.isEmpty {
-                        tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
-                    }
+                    return false
+                }
+            }
+            
+            if !isAlreadyPresent {
+                // Add the new item
+                clipboardItems.insert(newItem, at: 0)
+                
+                // Limit history size
+                if clipboardItems.count > 20 {
+                    clipboardItems.removeLast()
+                }
+                
+                tableView.reloadData()
+                
+                // Auto-select the first (most recent) item
+                if !clipboardItems.isEmpty {
+                    tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
                 }
             }
         }
     }
     
-    private func copyToClipboard(_ string: String) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(string, forType: .string)
+    private func copyToClipboard(_ item: ClipboardItem) {
+        item.copyToPasteboard()
     }
     
     deinit {
@@ -292,6 +341,13 @@ extension ClipboardManagerWindow: NSTableViewDataSource, NSTableViewDelegate {
             cellView = NSTableCellView()
             cellView?.identifier = cellIdentifier
             
+            // Create icon view
+            let iconView = NSImageView(frame: NSRect(x: 10, y: 20, width: 20, height: 20))
+            iconView.imageScaling = .scaleProportionallyDown
+            iconView.tag = 100 // Tag for later retrieval
+            cellView?.addSubview(iconView)
+            
+            // Create text field
             let textField = NSTextField()
             textField.isEditable = false
             textField.isBordered = false
@@ -303,16 +359,75 @@ extension ClipboardManagerWindow: NSTableViewDataSource, NSTableViewDelegate {
             cellView?.textField = textField
             cellView?.addSubview(textField)
             
+            // Add image preview for image items
+            let imagePreview = NSImageView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
+            imagePreview.imageScaling = .scaleProportionallyDown
+            imagePreview.tag = 200 // Tag for later retrieval
+            imagePreview.isHidden = true
+            cellView?.addSubview(imagePreview)
+            
+            // Layout constraints
             textField.translatesAutoresizingMaskIntoConstraints = false
+            iconView.translatesAutoresizingMaskIntoConstraints = false
+            imagePreview.translatesAutoresizingMaskIntoConstraints = false
+            
             NSLayoutConstraint.activate([
-                textField.leadingAnchor.constraint(equalTo: cellView!.leadingAnchor, constant: 10),
+                // Icon constraints
+                iconView.leadingAnchor.constraint(equalTo: cellView!.leadingAnchor, constant: 10),
+                iconView.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
+                iconView.widthAnchor.constraint(equalToConstant: 20),
+                iconView.heightAnchor.constraint(equalToConstant: 20),
+                
+                // Text field constraints
+                textField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
                 textField.trailingAnchor.constraint(equalTo: cellView!.trailingAnchor, constant: -10),
-                textField.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor)
+                textField.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
+                
+                // Image preview constraints
+                imagePreview.topAnchor.constraint(equalTo: textField.bottomAnchor, constant: 5),
+                imagePreview.leadingAnchor.constraint(equalTo: textField.leadingAnchor),
+                imagePreview.trailingAnchor.constraint(lessThanOrEqualTo: cellView!.trailingAnchor, constant: -10),
+                imagePreview.heightAnchor.constraint(equalToConstant: 50)
             ])
         }
         
-        // Configure cell
-        cellView?.textField?.stringValue = item.content
+        // Get components by tag
+        let iconView = cellView?.viewWithTag(100) as? NSImageView
+        let imagePreview = cellView?.viewWithTag(200) as? NSImageView
+        
+        // Configure cell based on item type
+        switch item.type {
+        case .text:
+            iconView?.image = NSImage(systemSymbolName: "doc.text", accessibilityDescription: "Text")
+            cellView?.textField?.stringValue = item.textContent ?? ""
+            imagePreview?.isHidden = true
+            
+        case .image:
+            iconView?.image = NSImage(systemSymbolName: "photo", accessibilityDescription: "Image")
+            cellView?.textField?.stringValue = "Image from clipboard"
+            
+            // Show small preview of the image
+            if let image = item.imageContent {
+                imagePreview?.image = image
+                imagePreview?.isHidden = false
+            } else {
+                imagePreview?.isHidden = true
+            }
+            
+        case .webImage:
+            iconView?.image = NSImage(systemSymbolName: "globe.americas", accessibilityDescription: "Web Image")
+            
+            let displayText = item.sourceURL?.absoluteString ?? "Web Image"
+            cellView?.textField?.stringValue = displayText
+            
+            // Show small preview of the image
+            if let image = item.imageContent {
+                imagePreview?.image = image
+                imagePreview?.isHidden = false
+            } else {
+                imagePreview?.isHidden = true
+            }
+        }
         
         return cellView
     }
@@ -321,7 +436,8 @@ extension ClipboardManagerWindow: NSTableViewDataSource, NSTableViewDelegate {
         let selectedRow = tableView.selectedRow
         if selectedRow >= 0 && selectedRow < clipboardItems.count {
             let item = clipboardItems[selectedRow]
-            copyToClipboard(item.content)
+            copyToClipboard(item)
+            updateStatusLabel("Item copied to clipboard")
         }
     }
     
@@ -332,7 +448,8 @@ extension ClipboardManagerWindow: NSTableViewDataSource, NSTableViewDelegate {
     func tableView(_ tableView: NSTableView, didDoubleClickRow row: Int) {
         if row >= 0 && row < clipboardItems.count {
             let item = clipboardItems[row]
-            copyToClipboard(item.content)
+            copyToClipboard(item)
+            updateStatusLabel("Item copied! Press ⌘V to paste in your app")
             
             // Store a local reference to previous app
             let targetApp = previousFrontmostApp
@@ -344,6 +461,19 @@ extension ClipboardManagerWindow: NSTableViewDataSource, NSTableViewDelegate {
             if let app = targetApp {
                 app.activate(options: .activateIgnoringOtherApps)
             }
+        }
+    }
+    
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        // Return taller rows for image items with preview
+        guard row < clipboardItems.count else { return 60 }
+        
+        let item = clipboardItems[row]
+        switch item.type {
+        case .text:
+            return 60
+        case .image, .webImage:
+            return 100 // Taller row for image preview
         }
     }
 } 

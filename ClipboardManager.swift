@@ -90,19 +90,54 @@ class ClipboardManagerApp: NSObject, NSApplicationDelegate {
     }
     
     private func checkForPasteboardChanges() {
-        guard let items = NSPasteboard.general.pasteboardItems else { return }
-        
-        for item in items {
-            if let string = item.string(forType: .string) {
-                if !clipboardItems.contains(where: { $0.content == string }) {
-                    let newItem = ClipboardItem(content: string, timestamp: Date())
-                    clipboardItems.insert(newItem, at: 0)
-                    print("New clipboard item added: \(string.prefix(20))...")
-                    
-                    // Limit history size
-                    if clipboardItems.count > 20 {
-                        clipboardItems.removeLast()
+        if let newItem = ClipboardItem.fromPasteboard(NSPasteboard.general) {
+            // Check if we already have this item
+            let isAlreadyPresent: Bool
+            
+            switch newItem.type {
+            case .text:
+                // For text, compare the actual text content
+                isAlreadyPresent = clipboardItems.contains { 
+                    $0.type == .text && $0.textContent == newItem.textContent 
+                }
+                
+            case .image, .webImage:
+                // For images, compare by size/dimensions for a quick check
+                isAlreadyPresent = clipboardItems.contains { 
+                    if $0.type == .image || $0.type == .webImage, 
+                       let existingImage = $0.imageContent,
+                       let newImage = newItem.imageContent {
+                        return existingImage.size == newImage.size
                     }
+                    return false
+                }
+            }
+            
+            if !isAlreadyPresent {
+                // Add the new item
+                clipboardItems.insert(newItem, at: 0)
+                
+                // Log what was added
+                switch newItem.type {
+                case .text:
+                    if let text = newItem.textContent {
+                        print("New text item added: \(text.prefix(20))...")
+                    }
+                case .image:
+                    print("New image item added")
+                case .webImage:
+                    print("New web image item added from \(newItem.sourceURL?.absoluteString ?? "unknown source")")
+                }
+                
+                // Limit history size
+                if clipboardItems.count > 20 {
+                    clipboardItems.removeLast()
+                }
+                
+                // Update the UI if the popover is visible
+                if let controller = popover?.contentViewController as? ClipboardListViewController,
+                   popover?.isShown == true {
+                    controller.clipboardItems = clipboardItems
                 }
             }
         }
@@ -159,15 +194,5 @@ class ClipboardManagerApp: NSObject, NSApplicationDelegate {
         NSUserNotificationCenter.default.deliver(notification)
         
         print("Notification sent: \(title) - \(message)")
-    }
-}
-
-struct ClipboardItem: Equatable {
-    let id = UUID()
-    let content: String
-    let timestamp: Date
-    
-    static func == (lhs: ClipboardItem, rhs: ClipboardItem) -> Bool {
-        return lhs.id == rhs.id
     }
 } 

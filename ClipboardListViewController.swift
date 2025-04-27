@@ -64,15 +64,13 @@ class ClipboardListViewController: NSViewController, NSTableViewDataSource, NSTa
         let selectedRow = tableView.selectedRow
         if selectedRow >= 0 && selectedRow < clipboardItems.count {
             let item = clipboardItems[selectedRow]
-            copyToClipboard(item.content)
+            copyToClipboard(item)
             closePopover()
         }
     }
     
-    private func copyToClipboard(_ string: String) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(string, forType: .string)
+    private func copyToClipboard(_ item: ClipboardItem) {
+        item.copyToPasteboard()
     }
     
     private func closePopover() {
@@ -101,6 +99,13 @@ class ClipboardListViewController: NSViewController, NSTableViewDataSource, NSTa
             cellView = NSTableCellView()
             cellView?.identifier = cellIdentifier
             
+            // Create icon view
+            let iconView = NSImageView(frame: NSRect(x: 10, y: 20, width: 20, height: 20))
+            iconView.imageScaling = .scaleProportionallyDown
+            iconView.tag = 100 // Tag for later retrieval
+            cellView?.addSubview(iconView)
+            
+            // Create text field
             let textField = NSTextField()
             textField.isEditable = false
             textField.isBordered = false
@@ -111,16 +116,75 @@ class ClipboardListViewController: NSViewController, NSTableViewDataSource, NSTa
             cellView?.textField = textField
             cellView?.addSubview(textField)
             
+            // Add image preview for image items
+            let imagePreview = NSImageView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
+            imagePreview.imageScaling = .scaleProportionallyDown
+            imagePreview.tag = 200 // Tag for later retrieval
+            imagePreview.isHidden = true
+            cellView?.addSubview(imagePreview)
+            
+            // Layout constraints
             textField.translatesAutoresizingMaskIntoConstraints = false
+            iconView.translatesAutoresizingMaskIntoConstraints = false
+            imagePreview.translatesAutoresizingMaskIntoConstraints = false
+            
             NSLayoutConstraint.activate([
-                textField.leadingAnchor.constraint(equalTo: cellView!.leadingAnchor, constant: 10),
+                // Icon constraints
+                iconView.leadingAnchor.constraint(equalTo: cellView!.leadingAnchor, constant: 10),
+                iconView.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
+                iconView.widthAnchor.constraint(equalToConstant: 20),
+                iconView.heightAnchor.constraint(equalToConstant: 20),
+                
+                // Text field constraints
+                textField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
                 textField.trailingAnchor.constraint(equalTo: cellView!.trailingAnchor, constant: -10),
-                textField.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor)
+                textField.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
+                
+                // Image preview constraints
+                imagePreview.topAnchor.constraint(equalTo: textField.bottomAnchor, constant: 5),
+                imagePreview.leadingAnchor.constraint(equalTo: textField.leadingAnchor),
+                imagePreview.trailingAnchor.constraint(lessThanOrEqualTo: cellView!.trailingAnchor, constant: -10),
+                imagePreview.heightAnchor.constraint(equalToConstant: 50)
             ])
         }
         
-        // Configure cell
-        cellView?.textField?.stringValue = item.content
+        // Get components by tag
+        let iconView = cellView?.viewWithTag(100) as? NSImageView
+        let imagePreview = cellView?.viewWithTag(200) as? NSImageView
+        
+        // Configure cell based on item type
+        switch item.type {
+        case .text:
+            iconView?.image = NSImage(systemSymbolName: "doc.text", accessibilityDescription: "Text")
+            cellView?.textField?.stringValue = item.textContent ?? ""
+            imagePreview?.isHidden = true
+            
+        case .image:
+            iconView?.image = NSImage(systemSymbolName: "photo", accessibilityDescription: "Image")
+            cellView?.textField?.stringValue = "Image from clipboard"
+            
+            // Show small preview of the image
+            if let image = item.imageContent {
+                imagePreview?.image = image
+                imagePreview?.isHidden = false
+            } else {
+                imagePreview?.isHidden = true
+            }
+            
+        case .webImage:
+            iconView?.image = NSImage(systemSymbolName: "globe.americas", accessibilityDescription: "Web Image")
+            
+            let displayText = item.sourceURL?.absoluteString ?? "Web Image"
+            cellView?.textField?.stringValue = displayText
+            
+            // Show small preview of the image
+            if let image = item.imageContent {
+                imagePreview?.image = image
+                imagePreview?.isHidden = false
+            } else {
+                imagePreview?.isHidden = true
+            }
+        }
         
         return cellView
     }
@@ -129,7 +193,20 @@ class ClipboardListViewController: NSViewController, NSTableViewDataSource, NSTa
         let selectedRow = tableView.selectedRow
         if selectedRow >= 0 && selectedRow < clipboardItems.count {
             let item = clipboardItems[selectedRow]
-            copyToClipboard(item.content)
+            copyToClipboard(item)
+        }
+    }
+    
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        // Return taller rows for image items with preview
+        guard row < clipboardItems.count else { return 60 }
+        
+        let item = clipboardItems[row]
+        switch item.type {
+        case .text:
+            return 60
+        case .image, .webImage:
+            return 100 // Taller row for image preview
         }
     }
 } 
