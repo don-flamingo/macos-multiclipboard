@@ -100,11 +100,14 @@ class ClipboardListViewController: NSViewController, NSTableViewDataSource, NSTa
     }
     
     @objc private func clearHistory() {
+        // Clear the array
         clipboardItems.removeAll()
+        
+        // Update the UI
         tableView.reloadData()
         
-        // Save empty clipboard items
-        storageManager.saveItems(clipboardItems)
+        // Use the enhanced method to clear storage including image files
+        storageManager.clearAllItems()
     }
     
     private func setupTableView() {
@@ -184,6 +187,28 @@ class ClipboardListViewController: NSViewController, NSTableViewDataSource, NSTa
             timestampLabel.tag = 300 // Tag for later retrieval
             cellView?.addSubview(timestampLabel)
             
+            // Create day name label (below timestamp)
+            let dayNameLabel = NSTextField(labelWithString: "")
+            dayNameLabel.translatesAutoresizingMaskIntoConstraints = false
+            dayNameLabel.font = NSFont.systemFont(ofSize: 9, weight: .light)
+            dayNameLabel.textColor = NSColor.tertiaryLabelColor
+            dayNameLabel.alignment = .right
+            dayNameLabel.tag = 301 // Tag for later retrieval
+            cellView?.addSubview(dayNameLabel)
+            
+            // Add remove button
+            let removeButton = NSButton(title: "Delete", target: self, action: #selector(removeClipboardItem(_:)))
+            removeButton.translatesAutoresizingMaskIntoConstraints = false
+            removeButton.bezelStyle = .rounded
+            removeButton.controlSize = .small
+            removeButton.wantsLayer = true
+            removeButton.layer?.backgroundColor = NSColor.systemRed.cgColor
+            removeButton.layer?.cornerRadius = 4
+            removeButton.tag = 400 // Tag for later retrieval
+            removeButton.toolTip = "Remove this item"
+            removeButton.contentTintColor = NSColor.white
+            cellView?.addSubview(removeButton)
+            
             // Create text field
             let textField = NSTextField()
             textField.isEditable = false
@@ -210,18 +235,29 @@ class ClipboardListViewController: NSViewController, NSTableViewDataSource, NSTa
             NSLayoutConstraint.activate([
                 // Icon constraints
                 iconView.leadingAnchor.constraint(equalTo: cellView!.leadingAnchor, constant: 10),
-                iconView.topAnchor.constraint(equalTo: cellView!.topAnchor, constant: 10),
+                iconView.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
                 iconView.widthAnchor.constraint(equalToConstant: 20),
                 iconView.heightAnchor.constraint(equalToConstant: 20),
                 
                 // Timestamp constraints
                 timestampLabel.trailingAnchor.constraint(equalTo: cellView!.trailingAnchor, constant: -20),
-                timestampLabel.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
+                timestampLabel.topAnchor.constraint(equalTo: cellView!.centerYAnchor, constant: -12),
                 timestampLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 100),
+                
+                // Day name label constraints
+                dayNameLabel.trailingAnchor.constraint(equalTo: timestampLabel.trailingAnchor),
+                dayNameLabel.topAnchor.constraint(equalTo: timestampLabel.bottomAnchor, constant: 2),
+                dayNameLabel.widthAnchor.constraint(equalTo: timestampLabel.widthAnchor),
+                
+                // Remove button constraints
+                removeButton.trailingAnchor.constraint(equalTo: timestampLabel.leadingAnchor, constant: -8),
+                removeButton.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
+                removeButton.widthAnchor.constraint(equalToConstant: 55),
+                removeButton.heightAnchor.constraint(equalToConstant: 20),
                 
                 // Text field constraints
                 textField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
-                textField.trailingAnchor.constraint(equalTo: timestampLabel.leadingAnchor, constant: -10),
+                textField.trailingAnchor.constraint(equalTo: removeButton.leadingAnchor, constant: -10),
                 textField.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
                 
                 // Image preview constraints
@@ -237,9 +273,20 @@ class ClipboardListViewController: NSViewController, NSTableViewDataSource, NSTa
         let iconView = cellView?.viewWithTag(100) as? NSImageView
         let imagePreview = cellView?.viewWithTag(200) as? NSImageView
         let timestampLabel = cellView?.viewWithTag(300) as? NSTextField
+        let dayNameLabel = cellView?.viewWithTag(301) as? NSTextField
+        let removeButton = cellView?.viewWithTag(400) as? NSButton
+        
+        // Store the item index in the button's tag
+        removeButton?.rowIndex = row
         
         // Update timestamp
         timestampLabel?.stringValue = item.relativeTimeString + " (" + item.timeWithSecondsString + ")"
+        
+        // Update day name
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "EEEE" // Full day name
+        let dayName = dateFormatter.string(from: item.timestamp)
+        dayNameLabel?.stringValue = dayName
         
         // Configure cell based on item type
         switch item.type {
@@ -297,5 +344,23 @@ class ClipboardListViewController: NSViewController, NSTableViewDataSource, NSTa
         case .image, .webImage:
             return 100 // Taller row for image preview
         }
+    }
+    
+    // MARK: - Item Removal
+    
+    @objc func removeClipboardItem(_ sender: NSButton) {
+        let row = sender.rowIndex
+        guard row >= 0 && row < clipboardItems.count else {
+            return
+        }
+        
+        // Remove from clipboardItems array
+        clipboardItems.remove(at: row)
+        
+        // Update the UI
+        tableView.removeRows(at: IndexSet(integer: row), withAnimation: .slideUp)
+        
+        // Save changes to disk
+        storageManager.saveItems(clipboardItems)
     }
 } 

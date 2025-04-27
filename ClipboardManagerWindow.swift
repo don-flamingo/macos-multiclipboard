@@ -1,6 +1,21 @@
 import Cocoa
 import HotKey
 import Carbon.HIToolbox
+import ObjectiveC
+
+// Extension to add associated object property to NSButton
+private var AssociatedRowIndexKey: UInt8 = 0
+
+extension NSButton {
+    var rowIndex: Int {
+        get {
+            return objc_getAssociatedObject(self, &AssociatedRowIndexKey) as? Int ?? -1
+        }
+        set {
+            objc_setAssociatedObject(self, &AssociatedRowIndexKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        }
+    }
+}
 
 // Custom window that handles keyboard events for arrow navigation
 class KeyHandlingWindow: NSPanel {
@@ -529,10 +544,17 @@ class ClipboardManagerWindow: NSWindowController {
     }
     
     @objc private func clearHistory() {
+        // Clear the arrays
         clipboardItems.removeAll()
         filteredItems.removeAll()
+        
+        // Update the UI
         tableView.reloadData()
-        saveClipboardItems()
+        
+        // Use the enhanced method to clear storage including image files
+        storageManager.clearAllItems()
+        
+        // Update status
         updateStatusLabel("Clipboard history cleared")
     }
     
@@ -853,6 +875,15 @@ extension ClipboardManagerWindow: NSTableViewDataSource, NSTableViewDelegate {
             timestampLabel.tag = 300 // Tag for later retrieval
             cellView?.addSubview(timestampLabel)
             
+            // Create day name label (below timestamp)
+            let dayNameLabel = NSTextField(labelWithString: "")
+            dayNameLabel.translatesAutoresizingMaskIntoConstraints = false
+            dayNameLabel.font = NSFont.systemFont(ofSize: 9, weight: .light)
+            dayNameLabel.textColor = NSColor.tertiaryLabelColor
+            dayNameLabel.alignment = .right
+            dayNameLabel.tag = 301 // Tag for later retrieval
+            cellView?.addSubview(dayNameLabel)
+            
             // Create text field
             let textField = NSTextField()
             textField.isEditable = false
@@ -872,6 +903,19 @@ extension ClipboardManagerWindow: NSTableViewDataSource, NSTableViewDelegate {
             imagePreview.isHidden = true
             cellView?.addSubview(imagePreview)
             
+            // Add remove button
+            let removeButton = NSButton(title: "Delete", target: self, action: #selector(removeClipboardItem(_:)))
+            removeButton.translatesAutoresizingMaskIntoConstraints = false
+            removeButton.bezelStyle = .rounded
+            removeButton.controlSize = .small
+            removeButton.wantsLayer = true
+            removeButton.layer?.backgroundColor = NSColor.systemRed.cgColor
+            removeButton.layer?.cornerRadius = 4
+            removeButton.tag = 400 // Tag for later retrieval
+            removeButton.toolTip = "Remove this item"
+            removeButton.contentTintColor = NSColor.white
+            cellView?.addSubview(removeButton)
+            
             // Layout constraints
             textField.translatesAutoresizingMaskIntoConstraints = false
             iconView.translatesAutoresizingMaskIntoConstraints = false
@@ -886,12 +930,23 @@ extension ClipboardManagerWindow: NSTableViewDataSource, NSTableViewDelegate {
                 
                 // Timestamp constraints
                 timestampLabel.trailingAnchor.constraint(equalTo: cellView!.trailingAnchor, constant: -20),
-                timestampLabel.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
+                timestampLabel.topAnchor.constraint(equalTo: cellView!.centerYAnchor, constant: -12),
                 timestampLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
+                
+                // Day name label constraints
+                dayNameLabel.trailingAnchor.constraint(equalTo: timestampLabel.trailingAnchor),
+                dayNameLabel.topAnchor.constraint(equalTo: timestampLabel.bottomAnchor, constant: 2),
+                dayNameLabel.widthAnchor.constraint(equalTo: timestampLabel.widthAnchor),
+                
+                // Remove button constraints
+                removeButton.trailingAnchor.constraint(equalTo: timestampLabel.leadingAnchor, constant: -8),
+                removeButton.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
+                removeButton.widthAnchor.constraint(equalToConstant: 55),
+                removeButton.heightAnchor.constraint(equalToConstant: 20),
                 
                 // Text field constraints
                 textField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
-                textField.trailingAnchor.constraint(equalTo: timestampLabel.leadingAnchor, constant: -10),
+                textField.trailingAnchor.constraint(equalTo: removeButton.leadingAnchor, constant: -10),
                 textField.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
                 
                 // Image preview constraints
@@ -906,9 +961,20 @@ extension ClipboardManagerWindow: NSTableViewDataSource, NSTableViewDelegate {
         let iconView = cellView?.viewWithTag(100) as? NSImageView
         let imagePreview = cellView?.viewWithTag(200) as? NSImageView
         let timestampLabel = cellView?.viewWithTag(300) as? NSTextField
+        let dayNameLabel = cellView?.viewWithTag(301) as? NSTextField
+        let removeButton = cellView?.viewWithTag(400) as? NSButton
+        
+        // Store the row in the button's tag for later retrieval
+        removeButton?.rowIndex = row
         
         // Update timestamp
         timestampLabel?.stringValue = item.timeWithSecondsString
+        
+        // Update day name
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "EEEE" // Full day name
+        let dayName = dateFormatter.string(from: item.timestamp)
+        dayNameLabel?.stringValue = dayName
         
         // Configure cell based on item type
         switch item.type {
@@ -990,5 +1056,33 @@ extension ClipboardManagerWindow: NSTableViewDataSource, NSTableViewDelegate {
         case .image, .webImage:
             return 100 // Taller row for image preview
         }
+    }
+    
+    // MARK: - Item Removal
+    
+    @objc func removeClipboardItem(_ sender: NSButton) {
+        let row = sender.rowIndex
+        guard row >= 0 && row < filteredItems.count else {
+            return
+        }
+        
+        let itemToRemove = filteredItems[row]
+        
+        // Remove from filtered items
+        filteredItems.remove(at: row)
+        
+        // Find and remove from main clipboardItems array
+        if let mainIndex = clipboardItems.firstIndex(where: { $0.id == itemToRemove.id }) {
+            clipboardItems.remove(at: mainIndex)
+        }
+        
+        // Update the UI
+        tableView.removeRows(at: IndexSet(integer: row), withAnimation: .slideUp)
+        
+        // Save changes to disk
+        saveClipboardItems()
+        
+        // Update status
+        updateStatusLabel("Item removed")
     }
 } 

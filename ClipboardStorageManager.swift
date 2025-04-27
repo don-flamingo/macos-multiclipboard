@@ -4,16 +4,17 @@ class ClipboardStorageManager {
     static let shared = ClipboardStorageManager()
     
     private let fileURL: URL
+    private let cacheDirectoryURL: URL
     
     private init() {
         // Try to use a more reliable location for storage
-        let customPath = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents/ClipboardManagerData/clipboard_history.json")
-        fileURL = customPath
+        let documentsPath = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents/ClipboardManagerData")
+        cacheDirectoryURL = documentsPath
+        fileURL = documentsPath.appendingPathComponent("clipboard_history.json")
         
         // Create directory if it doesn't exist
-        let directoryPath = fileURL.deletingLastPathComponent()
-        if !FileManager.default.fileExists(atPath: directoryPath.path) {
-            try? FileManager.default.createDirectory(at: directoryPath, withIntermediateDirectories: true)
+        if !FileManager.default.fileExists(atPath: documentsPath.path) {
+            try? FileManager.default.createDirectory(at: documentsPath, withIntermediateDirectories: true)
         }
         
         print("ClipboardStorageManager initialized. Storage location: \(fileURL.path)")
@@ -47,6 +48,23 @@ class ClipboardStorageManager {
         } catch {
             print("Error loading clipboard items: \(error.localizedDescription)")
             return []
+        }
+    }
+    
+    func clearAllItems() {
+        do {
+            // 1. Delete the history JSON file
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                try FileManager.default.removeItem(at: fileURL)
+                print("Deleted clipboard history file")
+            }
+            
+            // 2. Create a fresh empty file
+            saveItems([])
+            
+            print("Clipboard history cleared successfully")
+        } catch {
+            print("Error clearing clipboard items: \(error.localizedDescription)")
         }
     }
 } 
