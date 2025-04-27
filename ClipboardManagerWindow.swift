@@ -2,18 +2,47 @@ import Cocoa
 import HotKey
 import Carbon.HIToolbox
 
+// Custom window that handles keyboard events for arrow navigation
+class KeyHandlingWindow: NSPanel {
+    var dayForwardAction: (() -> Void)?
+    var dayBackwardAction: (() -> Void)?
+    
+    override func keyDown(with event: NSEvent) {
+        let cmdPressed = event.modifierFlags.contains(.command)
+        
+        if cmdPressed {
+            switch event.keyCode {
+            case 123: // Left arrow key with command
+                dayForwardAction?()
+                return
+            case 124: // Right arrow key with command
+                dayBackwardAction?()
+                return
+            default:
+                break
+            }
+        }
+        
+        super.keyDown(with: event)
+    }
+}
+
 class ClipboardManagerWindow: NSWindowController {
     private var clipboardItems: [ClipboardItem] = []
+    private var filteredItems: [ClipboardItem] = []
     private var tableView: NSTableView!
     private var hotKey: HotKey?
     private var clipboardMonitorTimer: Timer?
+    private var keyEventMonitor: Any?
     private var previousFrontmostApp: NSRunningApplication?
     private var statusLabel: NSTextField!
+    private var dateFilterButtons: [NSButton] = []
+    private var currentFilter: Date?
     private let storageManager = ClipboardStorageManager.shared
     
     init() {
-        // Create a borderless panel instead of a standard window
-        let panel = NSPanel(
+        // Create a custom borderless panel instead of a standard window
+        let panel = KeyHandlingWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -37,6 +66,19 @@ class ClipboardManagerWindow: NSWindowController {
         panel.isMovableByWindowBackground = true
         
         super.init(window: panel)
+        
+        // Set up keyboard handlers for the custom window
+        if let customWindow = window as? KeyHandlingWindow {
+            customWindow.dayForwardAction = { [weak self] in
+                self?.navigateDayForward(NSButton())
+            }
+            customWindow.dayBackwardAction = { [weak self] in
+                self?.navigateDayBackward(NSButton())
+            }
+        }
+        
+        // Setup main menu with keyboard shortcuts
+        setupMainMenu()
         
         // Load saved items
         loadSavedClipboardItems()
@@ -73,8 +115,51 @@ class ClipboardManagerWindow: NSWindowController {
         }
     }
     
+    private func setupMainMenu() {
+        // Create a main menu if one doesn't exist
+        if NSApp.mainMenu == nil {
+            NSApp.mainMenu = NSMenu(title: "MainMenu")
+        }
+        
+        // Create Navigation Menu 
+        let navMenu = NSMenu(title: "Navigation")
+        let navMenuItem = NSMenuItem(title: "Navigation", action: nil, keyEquivalent: "")
+        navMenuItem.submenu = navMenu
+        
+        // Previous Day (⌘S)
+        let prevDayItem = NSMenuItem(title: "Previous Day", action: #selector(navigateDayBackward(_:)), keyEquivalent: "s")
+        prevDayItem.keyEquivalentModifierMask = .command
+        prevDayItem.target = self
+        navMenu.addItem(prevDayItem)
+        
+        // Next Day (⌘A)
+        let nextDayItem = NSMenuItem(title: "Next Day", action: #selector(navigateDayForward(_:)), keyEquivalent: "a")
+        nextDayItem.keyEquivalentModifierMask = .command
+        nextDayItem.target = self
+        navMenu.addItem(nextDayItem)
+        
+        // Add separator
+        navMenu.addItem(NSMenuItem.separator())
+        
+        // Today (⌘T)
+        let todayItem = NSMenuItem(title: "Today", action: #selector(filterToday(_:)), keyEquivalent: "t")
+        todayItem.keyEquivalentModifierMask = .command
+        todayItem.target = self
+        navMenu.addItem(todayItem)
+        
+        // All Items (⌘0)
+        let allItem = NSMenuItem(title: "All Items", action: #selector(showAllItems(_:)), keyEquivalent: "0")
+        allItem.keyEquivalentModifierMask = .command
+        allItem.target = self
+        navMenu.addItem(allItem)
+        
+        // Add Navigation menu to main menu
+        NSApp.mainMenu?.addItem(navMenuItem)
+    }
+    
     private func loadSavedClipboardItems() {
         self.clipboardItems = storageManager.loadItems()
+        self.filteredItems = clipboardItems
         print("Loaded \(clipboardItems.count) items from storage")
     }
     
@@ -105,11 +190,30 @@ class ClipboardManagerWindow: NSWindowController {
         }
     }
     
+    override func keyDown(with event: NSEvent) {
+        let cmdPressed = event.modifierFlags.contains(.command)
+        
+        if cmdPressed {
+            switch event.keyCode {
+            case 123: // Left arrow key
+                navigateDayForward(NSButton())
+                return
+            case 124: // Right arrow key
+                navigateDayBackward(NSButton())
+                return
+            default:
+                break
+            }
+        }
+        
+        super.keyDown(with: event)
+    }
+    
     private func moveSelection(delta: Int) {
         let currentRow = tableView.selectedRow
         let newRow = max(0, min(tableView.numberOfRows - 1, currentRow + delta))
         
-        if newRow != currentRow && newRow >= 0 && newRow < clipboardItems.count {
+        if newRow != currentRow && newRow >= 0 && newRow < filteredItems.count {
             tableView.selectRowIndexes(IndexSet(integer: newRow), byExtendingSelection: false)
             tableView.scrollRowToVisible(newRow)
             updateStatusLabel("Item copied to clipboard")
@@ -135,8 +239,8 @@ class ClipboardManagerWindow: NSWindowController {
     
     private func handleEnterKey() {
         let selectedRow = tableView.selectedRow
-        if selectedRow >= 0 && selectedRow < clipboardItems.count {
-            let item = clipboardItems[selectedRow]
+        if selectedRow >= 0 && selectedRow < filteredItems.count {
+            let item = filteredItems[selectedRow]
             copyToClipboard(item)
             updateStatusLabel("Item copied! Press ⌘V to paste in your app")
             
@@ -236,19 +340,8 @@ class ClipboardManagerWindow: NSWindowController {
         footerView.wantsLayer = true
         contentView.addSubview(footerView)
         
-        // Add a separator line above the footer
-        let separator = NSView()
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        separator.wantsLayer = true
-        separator.layer?.backgroundColor = NSColor.separatorColor.cgColor
-        footerView.addSubview(separator)
-        
-        // Add clear history button to the footer
-        let clearButton = NSButton(title: "Clear History", target: self, action: #selector(clearHistory))
-        clearButton.translatesAutoresizingMaskIntoConstraints = false
-        clearButton.bezelStyle = .rounded
-        clearButton.controlSize = .small
-        footerView.addSubview(clearButton)
+        // Setup the footer with day filtering tabs
+        setupFooter(in: footerView)
         
         // Set delegates
         tableView.dataSource = self
@@ -272,17 +365,7 @@ class ClipboardManagerWindow: NSWindowController {
             footerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             footerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             footerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-            footerView.heightAnchor.constraint(equalToConstant: 40),
-            
-            // Separator constraints
-            separator.topAnchor.constraint(equalTo: footerView.topAnchor),
-            separator.leadingAnchor.constraint(equalTo: footerView.leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: footerView.trailingAnchor),
-            separator.heightAnchor.constraint(equalToConstant: 1),
-            
-            // Clear button constraints
-            clearButton.centerXAnchor.constraint(equalTo: footerView.centerXAnchor),
-            clearButton.centerYAnchor.constraint(equalTo: footerView.centerYAnchor),
+            footerView.heightAnchor.constraint(equalToConstant: 80), // Increased to fit date tabs
             
             scrollView.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 10),
             scrollView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 10),
@@ -291,8 +374,163 @@ class ClipboardManagerWindow: NSWindowController {
         ])
     }
     
+    private func setupFooter(in footerView: NSView) {
+        // Add a separator line above the footer
+        let separator = NSView()
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        separator.wantsLayer = true
+        separator.layer?.backgroundColor = NSColor.separatorColor.cgColor
+        footerView.addSubview(separator)
+        
+        // Create days filter tab bar
+        let daysFilterView = NSView()
+        daysFilterView.translatesAutoresizingMaskIntoConstraints = false
+        footerView.addSubview(daysFilterView)
+        
+        // Add navigation arrows for days - SWAP DIRECTIONS
+        let leftArrowButton = NSButton(title: "← (⌘A)", target: self, action: #selector(navigateDayForward(_:)))
+        leftArrowButton.translatesAutoresizingMaskIntoConstraints = false
+        leftArrowButton.bezelStyle = .recessed
+        leftArrowButton.isBordered = false
+        leftArrowButton.font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .bold)
+        leftArrowButton.contentTintColor = NSColor.secondaryLabelColor
+        daysFilterView.addSubview(leftArrowButton)
+        
+        // Create a container view for the tab buttons to center them
+        let tabButtonsContainer = NSView()
+        tabButtonsContainer.translatesAutoresizingMaskIntoConstraints = false
+        daysFilterView.addSubview(tabButtonsContainer)
+        
+        // Add buttons for days
+        let allButton = createFilterButton(title: "All (⌘0)", action: #selector(showAllItems(_:)))
+        let todayButton = createFilterButton(title: "Today (⌘T)", action: #selector(filterToday(_:)))
+        let yesterdayButton = createFilterButton(title: "Yesterday", action: #selector(filterYesterday(_:)))
+        
+        // Create day name buttons for the past week
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "EEE" // Short weekday name
+        
+        let calendar = Calendar.current
+        var weekdayButtons: [NSButton] = []
+        
+        // Add buttons for the past 5 days (excluding today and yesterday)
+        for i in 2...6 {
+            let date = calendar.date(byAdding: .day, value: -i, to: Date())!
+            let dayName = dateFormatter.string(from: date)
+            let button = createFilterButton(title: dayName, action: #selector(filterByWeekday(_:)))
+            button.tag = i // Store the day offset in the tag
+            weekdayButtons.append(button)
+        }
+        
+        // Add "More" button
+        let moreButton = createFilterButton(title: "More...", action: #selector(showMoreDates(_:)))
+        
+        // Add right arrow button - SWAP DIRECTIONS
+        let rightArrowButton = NSButton(title: "(⌘S) →", target: self, action: #selector(navigateDayBackward(_:)))
+        rightArrowButton.translatesAutoresizingMaskIntoConstraints = false
+        rightArrowButton.bezelStyle = .recessed
+        rightArrowButton.isBordered = false
+        rightArrowButton.font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .bold)
+        rightArrowButton.contentTintColor = NSColor.secondaryLabelColor
+        daysFilterView.addSubview(rightArrowButton)
+        
+        // Store all filter buttons for later reference
+        dateFilterButtons = [allButton, todayButton, yesterdayButton] + weekdayButtons + [moreButton]
+        
+        // Highlight "All" button by default
+        highlightSelectedFilterButton(allButton)
+        
+        // Add buttons to the filter container
+        tabButtonsContainer.addSubview(allButton)
+        tabButtonsContainer.addSubview(todayButton)
+        tabButtonsContainer.addSubview(yesterdayButton)
+        for button in weekdayButtons {
+            tabButtonsContainer.addSubview(button)
+        }
+        tabButtonsContainer.addSubview(moreButton)
+        
+        // Add clear history button to the footer
+        let clearButton = NSButton(title: "Clear History", target: self, action: #selector(clearHistory))
+        clearButton.translatesAutoresizingMaskIntoConstraints = false
+        clearButton.bezelStyle = .rounded
+        clearButton.controlSize = .small
+        footerView.addSubview(clearButton)
+        
+        // Add constraints for the filter section
+        NSLayoutConstraint.activate([
+            // Separator constraints
+            separator.topAnchor.constraint(equalTo: footerView.topAnchor),
+            separator.leadingAnchor.constraint(equalTo: footerView.leadingAnchor),
+            separator.trailingAnchor.constraint(equalTo: footerView.trailingAnchor),
+            separator.heightAnchor.constraint(equalToConstant: 1),
+            
+            // Days filter view
+            daysFilterView.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 8),
+            daysFilterView.leadingAnchor.constraint(equalTo: footerView.leadingAnchor, constant: 10),
+            daysFilterView.trailingAnchor.constraint(equalTo: footerView.trailingAnchor, constant: -10),
+            daysFilterView.heightAnchor.constraint(equalToConstant: 25),
+            
+            // Left arrow constraints
+            leftArrowButton.leadingAnchor.constraint(equalTo: daysFilterView.leadingAnchor, constant: 5),
+            leftArrowButton.centerYAnchor.constraint(equalTo: daysFilterView.centerYAnchor),
+            
+            // Tab buttons container centered in filter view
+            tabButtonsContainer.centerXAnchor.constraint(equalTo: daysFilterView.centerXAnchor),
+            tabButtonsContainer.centerYAnchor.constraint(equalTo: daysFilterView.centerYAnchor),
+            tabButtonsContainer.heightAnchor.constraint(equalTo: daysFilterView.heightAnchor),
+            tabButtonsContainer.leadingAnchor.constraint(greaterThanOrEqualTo: leftArrowButton.trailingAnchor, constant: 10),
+            tabButtonsContainer.trailingAnchor.constraint(lessThanOrEqualTo: rightArrowButton.leadingAnchor, constant: -10),
+            
+            // Right arrow constraints
+            rightArrowButton.trailingAnchor.constraint(equalTo: daysFilterView.trailingAnchor, constant: -5),
+            rightArrowButton.centerYAnchor.constraint(equalTo: daysFilterView.centerYAnchor),
+            
+            // Clear button constraints
+            clearButton.topAnchor.constraint(equalTo: daysFilterView.bottomAnchor, constant: 8),
+            clearButton.centerXAnchor.constraint(equalTo: footerView.centerXAnchor),
+            clearButton.bottomAnchor.constraint(equalTo: footerView.bottomAnchor, constant: -10)
+        ])
+        
+        // Set up horizontal layout for filter buttons
+        if let firstButton = dateFilterButtons.first {
+            NSLayoutConstraint.activate([
+                firstButton.leadingAnchor.constraint(equalTo: tabButtonsContainer.leadingAnchor)
+            ])
+            
+            // Chain buttons horizontally with spacing
+            for i in 1..<dateFilterButtons.count {
+                NSLayoutConstraint.activate([
+                    dateFilterButtons[i].leadingAnchor.constraint(equalTo: dateFilterButtons[i-1].trailingAnchor, constant: 12)
+                ])
+            }
+            
+            if let lastButton = dateFilterButtons.last {
+                NSLayoutConstraint.activate([
+                    lastButton.trailingAnchor.constraint(equalTo: tabButtonsContainer.trailingAnchor)
+                ])
+            }
+            
+            // Center buttons vertically
+            for button in dateFilterButtons {
+                NSLayoutConstraint.activate([
+                    button.centerYAnchor.constraint(equalTo: tabButtonsContainer.centerYAnchor)
+                ])
+            }
+        }
+    }
+    
+    private func createFilterButton(title: String, action: Selector) -> NSButton {
+        let button = NSButton(title: title, target: self, action: action)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.bezelStyle = .recessed
+        button.isBordered = false
+        button.contentTintColor = NSColor.secondaryLabelColor
+        return button
+    }
+    
     @objc private func clearHistory() {
         clipboardItems.removeAll()
+        filteredItems.removeAll()
         tableView.reloadData()
         saveClipboardItems()
         updateStatusLabel("Clipboard history cleared")
@@ -344,6 +582,9 @@ class ClipboardManagerWindow: NSWindowController {
                 // Add the new item
                 clipboardItems.insert(newItem, at: 0)
                 
+                // Update filtered items based on current filter
+                filterItemsByDate(currentFilter)
+                
                 // Log what was added
                 switch newItem.type {
                 case .text:
@@ -380,6 +621,191 @@ class ClipboardManagerWindow: NSWindowController {
     
     deinit {
         clipboardMonitorTimer?.invalidate()
+        
+        // Remove event monitor when window is deallocated
+        if let monitor = keyEventMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+    }
+    
+    // Method to filter items by date
+    private func filterItemsByDate(_ date: Date?) {
+        if let filterDate = date {
+            let calendar = Calendar.current
+            filteredItems = clipboardItems.filter { item in
+                calendar.isDate(item.timestamp, inSameDayAs: filterDate)
+            }
+        } else {
+            // No filter = show all items
+            filteredItems = clipboardItems
+        }
+        
+        tableView.reloadData()
+        
+        // Select the first row if available
+        if tableView.numberOfRows > 0 {
+            tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        }
+    }
+    
+    // MARK: - Day filter actions
+    
+    @objc private func filterToday(_ sender: NSButton) {
+        highlightSelectedFilterButton(sender)
+        currentFilter = Date()
+        filterItemsByDate(currentFilter)
+    }
+    
+    @objc private func filterYesterday(_ sender: NSButton) {
+        highlightSelectedFilterButton(sender)
+        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: Date())
+        currentFilter = yesterday
+        filterItemsByDate(currentFilter)
+    }
+    
+    @objc private func filterByWeekday(_ sender: NSButton) {
+        highlightSelectedFilterButton(sender)
+        // Get the tag which is the offset of days (-2 = 2 days ago, etc.)
+        let daysOffset = -(sender.tag)
+        let targetDate = Calendar.current.date(byAdding: .day, value: daysOffset, to: Date())
+        currentFilter = targetDate
+        filterItemsByDate(currentFilter)
+    }
+    
+    @objc private func showMoreDates(_ sender: NSButton) {
+        let menu = NSMenu()
+        
+        // Add options for previous weeks
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "EEE, MMM d"
+        
+        let calendar = Calendar.current
+        let today = Date()
+        
+        // Start from 8 days ago (past week is already in buttons)
+        for i in 8...21 {
+            let date = calendar.date(byAdding: .day, value: -i, to: today)!
+            let menuItem = NSMenuItem(title: dateFormatter.string(from: date), action: #selector(selectDateFromMenu(_:)), keyEquivalent: "")
+            // Store the date in the representedObject
+            menuItem.representedObject = date
+            menu.addItem(menuItem)
+        }
+        
+        menu.popUp(positioning: nil, at: NSPoint(x: sender.frame.midX, y: sender.frame.minY), in: sender.superview!)
+    }
+    
+    @objc private func selectDateFromMenu(_ sender: NSMenuItem) {
+        if let date = sender.representedObject as? Date {
+            currentFilter = date
+            // Reset button highlight since this is coming from menu
+            resetFilterButtonHighlights()
+            filterItemsByDate(date)
+        }
+    }
+    
+    @objc private func showAllItems(_ sender: NSButton) {
+        highlightSelectedFilterButton(sender)
+        currentFilter = nil
+        filterItemsByDate(nil)
+    }
+    
+    private func highlightSelectedFilterButton(_ selectedButton: NSButton) {
+        // Reset all buttons to normal state
+        resetFilterButtonHighlights()
+        
+        // Highlight the selected button
+        selectedButton.contentTintColor = NSColor.controlAccentColor
+        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .bold)
+        selectedButton.font = font
+    }
+    
+    private func resetFilterButtonHighlights() {
+        for button in dateFilterButtons {
+            button.contentTintColor = NSColor.secondaryLabelColor
+            let font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+            button.font = font
+        }
+    }
+    
+    // Navigation methods for day arrows
+    @objc private func navigateDayBackward(_ sender: NSButton) {
+        // If we're showing all items, start from today
+        if currentFilter == nil {
+            currentFilter = Date()
+        }
+        
+        if let currentDate = currentFilter {
+            let previousDay = Calendar.current.date(byAdding: .day, value: -1, to: currentDate)!
+            currentFilter = previousDay
+            filterItemsByDate(currentFilter)
+            
+            // Try to find and highlight a button for this date if it exists
+            updateButtonHighlightForDate(previousDay)
+        }
+    }
+    
+    @objc private func navigateDayForward(_ sender: NSButton) {
+        // If we're showing all items, we can't go forward
+        if currentFilter == nil {
+            return
+        }
+        
+        if let currentDate = currentFilter {
+            // Don't navigate past today
+            if Calendar.current.isDateInToday(currentDate) {
+                // Already at today, show all items
+                showAllItems(dateFilterButtons[0]) // All button
+                return
+            }
+            
+            let nextDay = Calendar.current.date(byAdding: .day, value: 1, to: currentDate)!
+            currentFilter = nextDay
+            filterItemsByDate(currentFilter)
+            
+            // Try to find and highlight a button for this date if it exists
+            updateButtonHighlightForDate(nextDay)
+        }
+    }
+    
+    private func updateButtonHighlightForDate(_ date: Date) {
+        let calendar = Calendar.current
+        
+        // First reset all button highlights
+        resetFilterButtonHighlights()
+        
+        // Find the appropriate button to highlight
+        if calendar.isDateInToday(date) {
+            // Today button (index 1)
+            if dateFilterButtons.count > 1 {
+                highlightSelectedFilterButton(dateFilterButtons[1])
+            }
+        } else if calendar.isDate(date, equalTo: calendar.date(byAdding: .day, value: -1, to: Date())!, toGranularity: .day) {
+            // Yesterday button (index 2)
+            if dateFilterButtons.count > 2 {
+                highlightSelectedFilterButton(dateFilterButtons[2])
+            }
+        } else {
+            // Check for weekday buttons (indices 3-7)
+            for i in 3..<min(8, dateFilterButtons.count) {
+                let button = dateFilterButtons[i]
+                let daysOffset = -(button.tag)
+                let buttonDate = calendar.date(byAdding: .day, value: daysOffset, to: Date())!
+                
+                if calendar.isDate(date, equalTo: buttonDate, toGranularity: .day) {
+                    highlightSelectedFilterButton(button)
+                    return
+                }
+            }
+            
+            // No button found for this date - just update the status label
+            if let statusLabel = statusLabel {
+                let formatter = DateFormatter()
+                formatter.dateStyle = .medium
+                formatter.timeStyle = .none
+                let dateString = formatter.string(from: date)
+                statusLabel.stringValue = "Showing items from \(dateString)"
+            }
+        }
     }
 }
 
@@ -397,13 +823,13 @@ class KeyHandlingTableView: NSTableView {
 
 extension ClipboardManagerWindow: NSTableViewDataSource, NSTableViewDelegate {
     func numberOfRows(in tableView: NSTableView) -> Int {
-        return clipboardItems.count
+        return filteredItems.count
     }
     
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard row < clipboardItems.count else { return nil }
+        guard row < filteredItems.count else { return nil }
         
-        let item = clipboardItems[row]
+        let item = filteredItems[row]
         
         let cellIdentifier = NSUserInterfaceItemIdentifier("ClipboardCell")
         var cellView = tableView.makeView(withIdentifier: cellIdentifier, owner: self) as? NSTableCellView
@@ -523,8 +949,8 @@ extension ClipboardManagerWindow: NSTableViewDataSource, NSTableViewDelegate {
     
     func tableViewSelectionDidChange(_ notification: Notification) {
         let selectedRow = tableView.selectedRow
-        if selectedRow >= 0 && selectedRow < clipboardItems.count {
-            let item = clipboardItems[selectedRow]
+        if selectedRow >= 0 && selectedRow < filteredItems.count {
+            let item = filteredItems[selectedRow]
             copyToClipboard(item)
             updateStatusLabel("Item copied to clipboard")
         }
@@ -535,8 +961,8 @@ extension ClipboardManagerWindow: NSTableViewDataSource, NSTableViewDelegate {
     }
     
     func tableView(_ tableView: NSTableView, didDoubleClickRow row: Int) {
-        if row >= 0 && row < clipboardItems.count {
-            let item = clipboardItems[row]
+        if row >= 0 && row < filteredItems.count {
+            let item = filteredItems[row]
             copyToClipboard(item)
             updateStatusLabel("Item copied! Press ⌘V to paste in your app")
             
@@ -555,9 +981,9 @@ extension ClipboardManagerWindow: NSTableViewDataSource, NSTableViewDelegate {
     
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         // Return taller rows for image items with preview
-        guard row < clipboardItems.count else { return 60 }
+        guard row < filteredItems.count else { return 60 }
         
-        let item = clipboardItems[row]
+        let item = filteredItems[row]
         switch item.type {
         case .text:
             return 60
