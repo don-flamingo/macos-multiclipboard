@@ -418,6 +418,15 @@ extension ClipboardManagerWindow: NSTableViewDataSource, NSTableViewDelegate {
             iconView.tag = 100 // Tag for later retrieval
             cellView?.addSubview(iconView)
             
+            // Create timestamp label
+            let timestampLabel = NSTextField(labelWithString: "")
+            timestampLabel.translatesAutoresizingMaskIntoConstraints = false
+            timestampLabel.font = NSFont.systemFont(ofSize: 10, weight: .light)
+            timestampLabel.textColor = NSColor.secondaryLabelColor
+            timestampLabel.alignment = .right
+            timestampLabel.tag = 300 // Tag for later retrieval
+            cellView?.addSubview(timestampLabel)
+            
             // Create text field
             let textField = NSTextField()
             textField.isEditable = false
@@ -449,9 +458,14 @@ extension ClipboardManagerWindow: NSTableViewDataSource, NSTableViewDelegate {
                 iconView.widthAnchor.constraint(equalToConstant: 20),
                 iconView.heightAnchor.constraint(equalToConstant: 20),
                 
+                // Timestamp constraints
+                timestampLabel.trailingAnchor.constraint(equalTo: cellView!.trailingAnchor, constant: -20),
+                timestampLabel.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
+                timestampLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
+                
                 // Text field constraints
                 textField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
-                textField.trailingAnchor.constraint(equalTo: cellView!.trailingAnchor, constant: -10),
+                textField.trailingAnchor.constraint(equalTo: timestampLabel.leadingAnchor, constant: -10),
                 textField.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
                 
                 // Image preview constraints
@@ -465,6 +479,10 @@ extension ClipboardManagerWindow: NSTableViewDataSource, NSTableViewDelegate {
         // Get components by tag
         let iconView = cellView?.viewWithTag(100) as? NSImageView
         let imagePreview = cellView?.viewWithTag(200) as? NSImageView
+        let timestampLabel = cellView?.viewWithTag(300) as? NSTextField
+        
+        // Update timestamp
+        timestampLabel?.stringValue = item.timeWithSecondsString
         
         // Configure cell based on item type
         switch item.type {

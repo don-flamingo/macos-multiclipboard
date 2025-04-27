@@ -215,14 +215,14 @@ class ClipboardListViewController: NSViewController, NSTableViewDataSource, NSTa
                 iconView.heightAnchor.constraint(equalToConstant: 20),
                 
                 // Timestamp constraints
-                timestampLabel.trailingAnchor.constraint(equalTo: cellView!.trailingAnchor, constant: -10),
-                timestampLabel.topAnchor.constraint(equalTo: cellView!.topAnchor, constant: 5),
-                timestampLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
+                timestampLabel.trailingAnchor.constraint(equalTo: cellView!.trailingAnchor, constant: -20),
+                timestampLabel.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
+                timestampLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 100),
                 
                 // Text field constraints
                 textField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
-                textField.trailingAnchor.constraint(equalTo: cellView!.trailingAnchor, constant: -10),
-                textField.topAnchor.constraint(equalTo: timestampLabel.bottomAnchor, constant: 5),
+                textField.trailingAnchor.constraint(equalTo: timestampLabel.leadingAnchor, constant: -10),
+                textField.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
                 
                 // Image preview constraints
                 imagePreview.topAnchor.constraint(equalTo: textField.bottomAnchor, constant: 5),
@@ -239,7 +239,7 @@ class ClipboardListViewController: NSViewController, NSTableViewDataSource, NSTa
         let timestampLabel = cellView?.viewWithTag(300) as? NSTextField
         
         // Update timestamp
-        timestampLabel?.stringValue = item.relativeTimeString
+        timestampLabel?.stringValue = item.relativeTimeString + " (" + item.timeWithSecondsString + ")"
         
         // Configure cell based on item type
         switch item.type {

@@ -36,6 +36,12 @@ struct ClipboardItem: Equatable, Codable {
         return formatter.localizedString(for: timestamp, relativeTo: Date())
     }
     
+    var timeWithSecondsString: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter.string(from: timestamp)
+    }
+    
     init(id: UUID = UUID(), timestamp: Date = Date(), type: ClipboardItemType, textContent: String? = nil, imageContent: NSImage? = nil, sourceURL: URL? = nil) {
         self.id = id
         self.timestamp = timestamp
