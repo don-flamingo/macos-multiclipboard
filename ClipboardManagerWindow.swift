@@ -203,13 +203,6 @@ class ClipboardManagerWindow: NSWindowController {
         statusLabel.alignment = .center
         contentView.addSubview(statusLabel)
         
-        // Add clear history button
-        let clearButton = NSButton(title: "Clear History", target: self, action: #selector(clearHistory))
-        clearButton.translatesAutoresizingMaskIntoConstraints = false
-        clearButton.bezelStyle = .rounded
-        clearButton.controlSize = .small
-        contentView.addSubview(clearButton)
-        
         // Create table view with proper key handling
         let scrollView = NSScrollView()
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -237,6 +230,26 @@ class ClipboardManagerWindow: NSWindowController {
         scrollView.documentView = tableView
         contentView.addSubview(scrollView)
         
+        // Create a footer area
+        let footerView = NSView()
+        footerView.translatesAutoresizingMaskIntoConstraints = false
+        footerView.wantsLayer = true
+        contentView.addSubview(footerView)
+        
+        // Add a separator line above the footer
+        let separator = NSView()
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        separator.wantsLayer = true
+        separator.layer?.backgroundColor = NSColor.separatorColor.cgColor
+        footerView.addSubview(separator)
+        
+        // Add clear history button to the footer
+        let clearButton = NSButton(title: "Clear History", target: self, action: #selector(clearHistory))
+        clearButton.translatesAutoresizingMaskIntoConstraints = false
+        clearButton.bezelStyle = .rounded
+        clearButton.controlSize = .small
+        footerView.addSubview(clearButton)
+        
         // Set delegates
         tableView.dataSource = self
         tableView.delegate = self
@@ -253,15 +266,28 @@ class ClipboardManagerWindow: NSWindowController {
             
             statusLabel.topAnchor.constraint(equalTo: instructionsLabel.bottomAnchor, constant: 2),
             statusLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            statusLabel.trailingAnchor.constraint(equalTo: clearButton.leadingAnchor, constant: -10),
+            statusLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             
-            clearButton.centerYAnchor.constraint(equalTo: statusLabel.centerYAnchor),
-            clearButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            // Footer view constraints
+            footerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            footerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            footerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            footerView.heightAnchor.constraint(equalToConstant: 40),
+            
+            // Separator constraints
+            separator.topAnchor.constraint(equalTo: footerView.topAnchor),
+            separator.leadingAnchor.constraint(equalTo: footerView.leadingAnchor),
+            separator.trailingAnchor.constraint(equalTo: footerView.trailingAnchor),
+            separator.heightAnchor.constraint(equalToConstant: 1),
+            
+            // Clear button constraints
+            clearButton.centerXAnchor.constraint(equalTo: footerView.centerXAnchor),
+            clearButton.centerYAnchor.constraint(equalTo: footerView.centerYAnchor),
             
             scrollView.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 10),
             scrollView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 10),
             scrollView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -10),
-            scrollView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -10)
+            scrollView.bottomAnchor.constraint(equalTo: footerView.topAnchor, constant: -10)
         ])
     }
     

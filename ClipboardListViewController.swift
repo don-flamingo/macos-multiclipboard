@@ -9,6 +9,11 @@ class ClipboardListViewController: NSViewController, NSTableViewDataSource, NSTa
     
     private var tableView: NSTableView!
     private let scrollView = NSScrollView()
+    private var clearButton: NSButton!
+    private let footerView = NSView()
+    
+    // Reference to storage manager
+    private let storageManager = ClipboardStorageManager.shared
     
     init(clipboardItems: [ClipboardItem]) {
         self.clipboardItems = clipboardItems
@@ -20,10 +25,10 @@ class ClipboardListViewController: NSViewController, NSTableViewDataSource, NSTa
     }
     
     override func loadView() {
-        self.view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        self.view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 340))
         view.wantsLayer = true
         
-        setupTableView()
+        setupUI()
     }
     
     override func viewDidLoad() {
@@ -34,6 +39,72 @@ class ClipboardListViewController: NSViewController, NSTableViewDataSource, NSTa
         if !clipboardItems.isEmpty {
             tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         }
+    }
+    
+    private func setupUI() {
+        // Setup table view
+        setupTableView()
+        
+        // Setup footer with clear button
+        setupFooter()
+        
+        // Layout constraints
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        footerView.translatesAutoresizingMaskIntoConstraints = false
+        
+        NSLayoutConstraint.activate([
+            // Scroll view constraints
+            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: footerView.topAnchor),
+            
+            // Footer constraints
+            footerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            footerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            footerView.heightAnchor.constraint(equalToConstant: 40),
+            footerView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+    }
+    
+    private func setupFooter() {
+        footerView.wantsLayer = true
+        footerView.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        view.addSubview(footerView)
+        
+        // Add a separator line
+        let separator = NSView()
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        separator.wantsLayer = true
+        separator.layer?.backgroundColor = NSColor.separatorColor.cgColor
+        footerView.addSubview(separator)
+        
+        // Add Clear History button
+        clearButton = NSButton(title: "Clear History", target: self, action: #selector(clearHistory))
+        clearButton.translatesAutoresizingMaskIntoConstraints = false
+        clearButton.bezelStyle = .rounded
+        clearButton.controlSize = .regular
+        footerView.addSubview(clearButton)
+        
+        NSLayoutConstraint.activate([
+            // Separator constraints
+            separator.topAnchor.constraint(equalTo: footerView.topAnchor),
+            separator.leadingAnchor.constraint(equalTo: footerView.leadingAnchor),
+            separator.trailingAnchor.constraint(equalTo: footerView.trailingAnchor),
+            separator.heightAnchor.constraint(equalToConstant: 1),
+            
+            // Clear button constraints
+            clearButton.centerXAnchor.constraint(equalTo: footerView.centerXAnchor),
+            clearButton.centerYAnchor.constraint(equalTo: footerView.centerYAnchor)
+        ])
+    }
+    
+    @objc private func clearHistory() {
+        clipboardItems.removeAll()
+        tableView.reloadData()
+        
+        // Save empty clipboard items
+        storageManager.saveItems(clipboardItems)
     }
     
     private func setupTableView() {
@@ -54,8 +125,7 @@ class ClipboardListViewController: NSViewController, NSTableViewDataSource, NSTa
         // Set up scroll view
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
-        scrollView.frame = view.bounds
-        scrollView.autoresizingMask = [.width, .height]
+        scrollView.autoresizingMask = []
         
         view.addSubview(scrollView)
     }

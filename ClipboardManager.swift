@@ -75,17 +75,14 @@ class ClipboardManagerApp: NSObject, NSApplicationDelegate {
     private func setupMenu() {
         statusMenu = NSMenu()
         
+        // Show Clipboard History at the top
         let showItem = NSMenuItem(title: "Show Clipboard History", action: #selector(showPopover), keyEquivalent: "v")
         showItem.keyEquivalentModifierMask = [.command, .shift]
         statusMenu?.addItem(showItem)
         
         statusMenu?.addItem(NSMenuItem.separator())
         
-        let clearItem = NSMenuItem(title: "Clear History", action: #selector(clearClipboardHistory), keyEquivalent: "")
-        statusMenu?.addItem(clearItem)
-        
-        statusMenu?.addItem(NSMenuItem.separator())
-        
+        // Only keep the Quit option
         let quitItem = NSMenuItem(title: "Quit", action: #selector(quitApplication), keyEquivalent: "q")
         statusMenu?.addItem(quitItem)
         
