@@ -105,6 +105,15 @@ class ClipboardListViewController: NSViewController, NSTableViewDataSource, NSTa
             iconView.tag = 100 // Tag for later retrieval
             cellView?.addSubview(iconView)
             
+            // Create timestamp label
+            let timestampLabel = NSTextField(labelWithString: "")
+            timestampLabel.translatesAutoresizingMaskIntoConstraints = false
+            timestampLabel.font = NSFont.systemFont(ofSize: 10, weight: .light)
+            timestampLabel.textColor = NSColor.secondaryLabelColor
+            timestampLabel.alignment = .right
+            timestampLabel.tag = 300 // Tag for later retrieval
+            cellView?.addSubview(timestampLabel)
+            
             // Create text field
             let textField = NSTextField()
             textField.isEditable = false
@@ -131,26 +140,36 @@ class ClipboardListViewController: NSViewController, NSTableViewDataSource, NSTa
             NSLayoutConstraint.activate([
                 // Icon constraints
                 iconView.leadingAnchor.constraint(equalTo: cellView!.leadingAnchor, constant: 10),
-                iconView.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
+                iconView.topAnchor.constraint(equalTo: cellView!.topAnchor, constant: 10),
                 iconView.widthAnchor.constraint(equalToConstant: 20),
                 iconView.heightAnchor.constraint(equalToConstant: 20),
+                
+                // Timestamp constraints
+                timestampLabel.trailingAnchor.constraint(equalTo: cellView!.trailingAnchor, constant: -10),
+                timestampLabel.topAnchor.constraint(equalTo: cellView!.topAnchor, constant: 5),
+                timestampLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
                 
                 // Text field constraints
                 textField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
                 textField.trailingAnchor.constraint(equalTo: cellView!.trailingAnchor, constant: -10),
-                textField.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
+                textField.topAnchor.constraint(equalTo: timestampLabel.bottomAnchor, constant: 5),
                 
                 // Image preview constraints
                 imagePreview.topAnchor.constraint(equalTo: textField.bottomAnchor, constant: 5),
                 imagePreview.leadingAnchor.constraint(equalTo: textField.leadingAnchor),
                 imagePreview.trailingAnchor.constraint(lessThanOrEqualTo: cellView!.trailingAnchor, constant: -10),
-                imagePreview.heightAnchor.constraint(equalToConstant: 50)
+                imagePreview.heightAnchor.constraint(equalToConstant: 50),
+                imagePreview.bottomAnchor.constraint(lessThanOrEqualTo: cellView!.bottomAnchor, constant: -5)
             ])
         }
         
         // Get components by tag
         let iconView = cellView?.viewWithTag(100) as? NSImageView
         let imagePreview = cellView?.viewWithTag(200) as? NSImageView
+        let timestampLabel = cellView?.viewWithTag(300) as? NSTextField
+        
+        // Update timestamp
+        timestampLabel?.stringValue = item.relativeTimeString
         
         // Configure cell based on item type
         switch item.type {

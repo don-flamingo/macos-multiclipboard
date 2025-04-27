@@ -8,6 +8,7 @@ class ClipboardManagerApp: NSObject, NSApplicationDelegate {
     private var popover: NSPopover?
     private var hotKey: HotKey?
     private var statusMenu: NSMenu?
+    private let storageManager = ClipboardStorageManager.shared
     
     // This is the main entry point for the application
     static func main() {
@@ -26,6 +27,10 @@ class ClipboardManagerApp: NSObject, NSApplicationDelegate {
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("Application did finish launching")
+        
+        // Load saved clipboard items
+        loadSavedClipboardItems()
+        
         setupStatusBar()
         setupClipboardMonitoring()
         setupHotKey()
@@ -33,6 +38,20 @@ class ClipboardManagerApp: NSObject, NSApplicationDelegate {
         // Show a notification to confirm we're running
         displayNotification(title: "ClipboardManager Running", 
                            message: "Press Cmd+Shift+V to access clipboard history")
+    }
+    
+    func applicationWillTerminate(_ notification: Notification) {
+        // Save clipboard items when app terminates
+        saveClipboardItems()
+    }
+    
+    private func loadSavedClipboardItems() {
+        self.clipboardItems = storageManager.loadItems()
+        print("Loaded \(clipboardItems.count) items from storage")
+    }
+    
+    private func saveClipboardItems() {
+        storageManager.saveItems(clipboardItems)
     }
     
     private func setupStatusBar() {
@@ -62,10 +81,33 @@ class ClipboardManagerApp: NSObject, NSApplicationDelegate {
         
         statusMenu?.addItem(NSMenuItem.separator())
         
-        let quitItem = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let clearItem = NSMenuItem(title: "Clear History", action: #selector(clearClipboardHistory), keyEquivalent: "")
+        statusMenu?.addItem(clearItem)
+        
+        statusMenu?.addItem(NSMenuItem.separator())
+        
+        let quitItem = NSMenuItem(title: "Quit", action: #selector(quitApplication), keyEquivalent: "q")
         statusMenu?.addItem(quitItem)
         
         statusItem?.menu = statusMenu
+    }
+    
+    @objc private func clearClipboardHistory() {
+        clipboardItems.removeAll()
+        saveClipboardItems()
+        
+        // Update UI if visible
+        if let controller = popover?.contentViewController as? ClipboardListViewController,
+           popover?.isShown == true {
+            controller.clipboardItems = clipboardItems
+        }
+    }
+    
+    // Ensure items are saved when quitting
+    @objc private func quitApplication() {
+        print("Quitting application - saving clipboard items...")
+        saveClipboardItems()
+        NSApplication.shared.terminate(nil)
     }
     
     private func setupClipboardMonitoring() {
@@ -121,18 +163,21 @@ class ClipboardManagerApp: NSObject, NSApplicationDelegate {
                 switch newItem.type {
                 case .text:
                     if let text = newItem.textContent {
-                        print("New text item added: \(text.prefix(20))...")
+                        print("New text item added at \(newItem.dateTimeString): \(text.prefix(20))...")
                     }
                 case .image:
-                    print("New image item added")
+                    print("New image item added at \(newItem.dateTimeString)")
                 case .webImage:
-                    print("New web image item added from \(newItem.sourceURL?.absoluteString ?? "unknown source")")
+                    print("New web image added at \(newItem.dateTimeString) from \(newItem.sourceURL?.absoluteString ?? "unknown source")")
                 }
                 
                 // Limit history size
                 if clipboardItems.count > 20 {
                     clipboardItems.removeLast()
                 }
+                
+                // Save to persistent storage
+                saveClipboardItems()
                 
                 // Update the UI if the popover is visible
                 if let controller = popover?.contentViewController as? ClipboardListViewController,

@@ -9,6 +9,7 @@ class ClipboardManagerWindow: NSWindowController {
     private var clipboardMonitorTimer: Timer?
     private var previousFrontmostApp: NSRunningApplication?
     private var statusLabel: NSTextField!
+    private let storageManager = ClipboardStorageManager.shared
     
     init() {
         // Create a borderless panel instead of a standard window
@@ -36,6 +37,9 @@ class ClipboardManagerWindow: NSWindowController {
         panel.isMovableByWindowBackground = true
         
         super.init(window: panel)
+        
+        // Load saved items
+        loadSavedClipboardItems()
         
         setupUI()
         setupClipboardMonitoring()
@@ -67,6 +71,15 @@ class ClipboardManagerWindow: NSWindowController {
                 return event
             }
         }
+    }
+    
+    private func loadSavedClipboardItems() {
+        self.clipboardItems = storageManager.loadItems()
+        print("Loaded \(clipboardItems.count) items from storage")
+    }
+    
+    private func saveClipboardItems() {
+        storageManager.saveItems(clipboardItems)
     }
     
     required init?(coder: NSCoder) {
@@ -190,6 +203,13 @@ class ClipboardManagerWindow: NSWindowController {
         statusLabel.alignment = .center
         contentView.addSubview(statusLabel)
         
+        // Add clear history button
+        let clearButton = NSButton(title: "Clear History", target: self, action: #selector(clearHistory))
+        clearButton.translatesAutoresizingMaskIntoConstraints = false
+        clearButton.bezelStyle = .rounded
+        clearButton.controlSize = .small
+        contentView.addSubview(clearButton)
+        
         // Create table view with proper key handling
         let scrollView = NSScrollView()
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -233,13 +253,23 @@ class ClipboardManagerWindow: NSWindowController {
             
             statusLabel.topAnchor.constraint(equalTo: instructionsLabel.bottomAnchor, constant: 2),
             statusLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            statusLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            statusLabel.trailingAnchor.constraint(equalTo: clearButton.leadingAnchor, constant: -10),
+            
+            clearButton.centerYAnchor.constraint(equalTo: statusLabel.centerYAnchor),
+            clearButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             
             scrollView.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 10),
             scrollView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 10),
             scrollView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -10),
             scrollView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -10)
         ])
+    }
+    
+    @objc private func clearHistory() {
+        clipboardItems.removeAll()
+        tableView.reloadData()
+        saveClipboardItems()
+        updateStatusLabel("Clipboard history cleared")
     }
     
     private func setupClipboardMonitoring() {
@@ -288,10 +318,25 @@ class ClipboardManagerWindow: NSWindowController {
                 // Add the new item
                 clipboardItems.insert(newItem, at: 0)
                 
+                // Log what was added
+                switch newItem.type {
+                case .text:
+                    if let text = newItem.textContent {
+                        print("New text item added at \(newItem.dateTimeString): \(text.prefix(20))...")
+                    }
+                case .image:
+                    print("New image item added at \(newItem.dateTimeString)")
+                case .webImage:
+                    print("New web image added at \(newItem.dateTimeString) from \(newItem.sourceURL?.absoluteString ?? "unknown source")")
+                }
+                
                 // Limit history size
                 if clipboardItems.count > 20 {
                     clipboardItems.removeLast()
                 }
+                
+                // Save to storage
+                saveClipboardItems()
                 
                 tableView.reloadData()
                 

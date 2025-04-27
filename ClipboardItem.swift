@@ -7,13 +7,34 @@ enum ClipboardItemType: String, Codable {
     case webImage
 }
 
-struct ClipboardItem: Equatable {
+struct ClipboardItem: Equatable, Codable {
     let id: UUID
     let timestamp: Date
     let type: ClipboardItemType
     let textContent: String?
     let imageContent: NSImage?
     let sourceURL: URL?
+    
+    // Add formatted timestamp properties
+    var timeString: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        return formatter.string(from: timestamp)
+    }
+    
+    var dateTimeString: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .medium
+        return formatter.string(from: timestamp)
+    }
+    
+    var relativeTimeString: String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: timestamp, relativeTo: Date())
+    }
     
     init(id: UUID = UUID(), timestamp: Date = Date(), type: ClipboardItemType, textContent: String? = nil, imageContent: NSImage? = nil, sourceURL: URL? = nil) {
         self.id = id
@@ -120,5 +141,42 @@ struct ClipboardItem: Equatable {
     
     static func == (lhs: ClipboardItem, rhs: ClipboardItem) -> Bool {
         return lhs.id == rhs.id
+    }
+    
+    // MARK: - Codable implementation
+    
+    enum CodingKeys: String, CodingKey {
+        case id, timestamp, type, textContent, imageData, sourceURL
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(timestamp, forKey: .timestamp)
+        try container.encode(type, forKey: .type)
+        try container.encode(textContent, forKey: .textContent)
+        
+        // Convert NSImage to data for serialization
+        if let image = imageContent, let tiffData = image.tiffRepresentation {
+            try container.encode(tiffData, forKey: .imageData)
+        }
+        
+        try container.encode(sourceURL, forKey: .sourceURL)
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        timestamp = try container.decode(Date.self, forKey: .timestamp)
+        type = try container.decode(ClipboardItemType.self, forKey: .type)
+        textContent = try container.decodeIfPresent(String.self, forKey: .textContent)
+        sourceURL = try container.decodeIfPresent(URL.self, forKey: .sourceURL)
+        
+        // Convert data back to NSImage
+        if let imageData = try container.decodeIfPresent(Data.self, forKey: .imageData) {
+            imageContent = NSImage(data: imageData)
+        } else {
+            imageContent = nil
+        }
     }
 } 
