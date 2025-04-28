@@ -201,7 +201,6 @@ class ClipboardManagerWindow: NSWindowController {
         // Select the first row if available
         if tableView.numberOfRows > 0 {
             tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
-            updateStatusLabel("Item copied to clipboard")
         }
     }
     
@@ -231,7 +230,6 @@ class ClipboardManagerWindow: NSWindowController {
         if newRow != currentRow && newRow >= 0 && newRow < filteredItems.count {
             tableView.selectRowIndexes(IndexSet(integer: newRow), byExtendingSelection: false)
             tableView.scrollRowToVisible(newRow)
-            updateStatusLabel("Item copied to clipboard")
         }
     }
     
@@ -898,22 +896,25 @@ extension ClipboardManagerWindow: NSTableViewDataSource, NSTableViewDelegate {
             
             // Add image preview for image items
             let imagePreview = NSImageView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
-            imagePreview.imageScaling = .scaleProportionallyDown
+            imagePreview.imageScaling = .scaleProportionallyUpOrDown
             imagePreview.tag = 200 // Tag for later retrieval
             imagePreview.isHidden = true
+            imagePreview.wantsLayer = true
+            imagePreview.layer?.cornerRadius = 6
+            imagePreview.layer?.borderWidth = 1
+            imagePreview.layer?.borderColor = NSColor.separatorColor.cgColor
             cellView?.addSubview(imagePreview)
             
             // Add remove button
-            let removeButton = NSButton(title: "Delete", target: self, action: #selector(removeClipboardItem(_:)))
+            let removeButton = NSButton(title: "", target: self, action: #selector(removeClipboardItem(_:)))
             removeButton.translatesAutoresizingMaskIntoConstraints = false
-            removeButton.bezelStyle = .rounded
+            removeButton.bezelStyle = .inline
             removeButton.controlSize = .small
-            removeButton.wantsLayer = true
-            removeButton.layer?.backgroundColor = NSColor.systemRed.cgColor
-            removeButton.layer?.cornerRadius = 4
+            removeButton.image = NSImage(systemSymbolName: "trash", accessibilityDescription: "Delete")
+            removeButton.isBordered = false
+            removeButton.contentTintColor = NSColor.secondaryLabelColor
             removeButton.tag = 400 // Tag for later retrieval
             removeButton.toolTip = "Remove this item"
-            removeButton.contentTintColor = NSColor.white
             cellView?.addSubview(removeButton)
             
             // Layout constraints
@@ -941,19 +942,13 @@ extension ClipboardManagerWindow: NSTableViewDataSource, NSTableViewDelegate {
                 // Remove button constraints
                 removeButton.trailingAnchor.constraint(equalTo: timestampLabel.leadingAnchor, constant: -8),
                 removeButton.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
-                removeButton.widthAnchor.constraint(equalToConstant: 55),
-                removeButton.heightAnchor.constraint(equalToConstant: 20),
+                removeButton.widthAnchor.constraint(equalToConstant: 22),
+                removeButton.heightAnchor.constraint(equalToConstant: 22),
                 
                 // Text field constraints
                 textField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
                 textField.trailingAnchor.constraint(equalTo: removeButton.leadingAnchor, constant: -10),
-                textField.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
-                
-                // Image preview constraints
-                imagePreview.topAnchor.constraint(equalTo: textField.bottomAnchor, constant: 5),
-                imagePreview.leadingAnchor.constraint(equalTo: textField.leadingAnchor),
-                imagePreview.trailingAnchor.constraint(lessThanOrEqualTo: cellView!.trailingAnchor, constant: -10),
-                imagePreview.heightAnchor.constraint(equalToConstant: 50)
+                textField.topAnchor.constraint(equalTo: cellView!.topAnchor, constant: 5),
             ])
         }
         
@@ -976,21 +971,42 @@ extension ClipboardManagerWindow: NSTableViewDataSource, NSTableViewDelegate {
         let dayName = dateFormatter.string(from: item.timestamp)
         dayNameLabel?.stringValue = dayName
         
+        // Remove any existing image constraints (to avoid conflicts)
+        if let imagePreview = imagePreview {
+            let existingConstraints = cellView?.constraints.filter { constraint in
+                (constraint.firstItem === imagePreview || constraint.secondItem === imagePreview) &&
+                constraint.firstAttribute != .width && constraint.firstAttribute != .height
+            } ?? []
+            
+            if !existingConstraints.isEmpty {
+                cellView?.removeConstraints(existingConstraints)
+            }
+        }
+        
         // Configure cell based on item type
         switch item.type {
         case .text:
             iconView?.image = NSImage(systemSymbolName: "doc.text", accessibilityDescription: "Text")
             cellView?.textField?.stringValue = item.textContent ?? ""
+            cellView?.textField?.isHidden = false
             imagePreview?.isHidden = true
             
         case .image:
             iconView?.image = NSImage(systemSymbolName: "photo", accessibilityDescription: "Image")
-            cellView?.textField?.stringValue = "Image from clipboard"
+            cellView?.textField?.isHidden = true
             
-            // Show small preview of the image
-            if let image = item.imageContent {
-                imagePreview?.image = image
-                imagePreview?.isHidden = false
+            // Show full-width preview of the image
+            if let image = item.imageContent, let imagePreview = imagePreview, let cellView = cellView {
+                imagePreview.image = image
+                imagePreview.isHidden = false
+                
+                // Add constraints directly
+                cellView.addConstraints([
+                    imagePreview.topAnchor.constraint(equalTo: cellView.topAnchor, constant: 25),
+                    imagePreview.bottomAnchor.constraint(equalTo: cellView.bottomAnchor, constant: -10),
+                    imagePreview.leadingAnchor.constraint(equalTo: iconView!.trailingAnchor, constant: 10),
+                    imagePreview.trailingAnchor.constraint(equalTo: removeButton!.leadingAnchor, constant: -10)
+                ])
             } else {
                 imagePreview?.isHidden = true
             }
@@ -998,15 +1014,41 @@ extension ClipboardManagerWindow: NSTableViewDataSource, NSTableViewDelegate {
         case .webImage:
             iconView?.image = NSImage(systemSymbolName: "globe.americas", accessibilityDescription: "Web Image")
             
-            let displayText = item.sourceURL?.absoluteString ?? "Web Image"
-            cellView?.textField?.stringValue = displayText
-            
-            // Show small preview of the image
-            if let image = item.imageContent {
-                imagePreview?.image = image
-                imagePreview?.isHidden = false
+            if let urlString = item.sourceURL?.absoluteString, let textField = cellView?.textField {
+                textField.stringValue = urlString
+                textField.isHidden = false
+                
+                // Show image below URL text
+                if let image = item.imageContent, let imagePreview = imagePreview, let cellView = cellView {
+                    imagePreview.image = image
+                    imagePreview.isHidden = false
+                    
+                    cellView.addConstraints([
+                        imagePreview.topAnchor.constraint(equalTo: textField.bottomAnchor, constant: 5),
+                        imagePreview.bottomAnchor.constraint(equalTo: cellView.bottomAnchor, constant: -10),
+                        imagePreview.leadingAnchor.constraint(equalTo: iconView!.trailingAnchor, constant: 10),
+                        imagePreview.trailingAnchor.constraint(equalTo: removeButton!.leadingAnchor, constant: -10)
+                    ])
+                } else {
+                    imagePreview?.isHidden = true
+                }
             } else {
-                imagePreview?.isHidden = true
+                cellView?.textField?.isHidden = true
+                
+                // Handle web image without URL - same as regular image
+                if let image = item.imageContent, let imagePreview = imagePreview, let cellView = cellView {
+                    imagePreview.image = image
+                    imagePreview.isHidden = false
+                    
+                    cellView.addConstraints([
+                        imagePreview.topAnchor.constraint(equalTo: cellView.topAnchor, constant: 25),
+                        imagePreview.bottomAnchor.constraint(equalTo: cellView.bottomAnchor, constant: -10),
+                        imagePreview.leadingAnchor.constraint(equalTo: iconView!.trailingAnchor, constant: 10),
+                        imagePreview.trailingAnchor.constraint(equalTo: removeButton!.leadingAnchor, constant: -10)
+                    ])
+                } else {
+                    imagePreview?.isHidden = true
+                }
             }
         }
         
@@ -1018,7 +1060,6 @@ extension ClipboardManagerWindow: NSTableViewDataSource, NSTableViewDelegate {
         if selectedRow >= 0 && selectedRow < filteredItems.count {
             let item = filteredItems[selectedRow]
             copyToClipboard(item)
-            updateStatusLabel("Item copied to clipboard")
         }
     }
     
@@ -1054,7 +1095,7 @@ extension ClipboardManagerWindow: NSTableViewDataSource, NSTableViewDelegate {
         case .text:
             return 60
         case .image, .webImage:
-            return 100 // Taller row for image preview
+            return 120 // Taller row for image preview
         }
     }
     
