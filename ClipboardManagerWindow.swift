@@ -3,20 +3,6 @@ import HotKey
 import Carbon.HIToolbox
 import ObjectiveC
 
-// Extension to add associated object property to NSButton
-private var AssociatedRowIndexKey: UInt8 = 0
-
-extension NSButton {
-    var rowIndex: Int {
-        get {
-            return objc_getAssociatedObject(self, &AssociatedRowIndexKey) as? Int ?? -1
-        }
-        set {
-            objc_setAssociatedObject(self, &AssociatedRowIndexKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        }
-    }
-}
-
 // Custom window that handles keyboard events for arrow navigation
 class KeyHandlingWindow: NSPanel {
     var dayForwardAction: (() -> Void)?
@@ -566,6 +552,19 @@ class ClipboardManagerWindow: NSWindowController {
         }
     }
     
+    private func pauseClipboardMonitoring() {
+        clipboardMonitorTimer?.invalidate()
+        clipboardMonitorTimer = nil
+    }
+    
+    private func resumeClipboardMonitoring() {
+        if clipboardMonitorTimer == nil {
+            clipboardMonitorTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+                self?.checkForPasteboardChanges()
+            }
+        }
+    }
+    
     private func setupHotKey() {
         // Command+Shift+V
         hotKey = HotKey(key: .v, modifiers: [.command, .shift])
@@ -827,6 +826,79 @@ class ClipboardManagerWindow: NSWindowController {
             }
         }
     }
+    
+    @objc func removeClipboardItem(_ sender: NSButton) {
+        // Get the parent cell view
+        guard let cellView = sender.superview as? NSTableCellView else {
+            print("Error: Button not in a table cell view")
+            return
+        }
+        
+        // Find the row for this cell
+        let row = tableView.row(for: cellView)
+        if row == -1 {
+            print("Error: Could not determine row for cell")
+            return
+        }
+        
+        print("Removing item at row: \(row)")
+        
+        guard row >= 0 && row < filteredItems.count else {
+            print("Invalid row: \(row), filteredItems count: \(filteredItems.count)")
+            return
+        }
+        
+        // Temporarily pause clipboard monitoring
+        pauseClipboardMonitoring()
+        
+        let itemToRemove = filteredItems[row]
+        print("Removing item with id: \(itemToRemove.id), type: \(itemToRemove.type)")
+        
+        // Check if this is the selected row (currently in clipboard)
+        let isSelectedRow = (row == tableView.selectedRow)
+        
+        // If this is the selected row, deselect it first
+        if isSelectedRow {
+            tableView.deselectRow(row)
+        }
+        
+        // Remove from filtered items
+        filteredItems.remove(at: row)
+        
+        // Find and remove from main clipboardItems array
+        if let mainIndex = clipboardItems.firstIndex(where: { $0.id == itemToRemove.id }) {
+            print("Found item in main array at index: \(mainIndex)")
+            clipboardItems.remove(at: mainIndex)
+        } else {
+            print("Could not find item in main array")
+        }
+        
+        // Clear the pasteboard if we're removing the currently selected item
+        if isSelectedRow {
+            NSPasteboard.general.clearContents()
+        }
+        
+        // Update the UI
+        tableView.reloadData()
+        
+        // If we have items and the removed item was selected, select a new item
+        if isSelectedRow && filteredItems.count > 0 {
+            // Select the same row (now containing the next item) or the last item if that's not possible
+            let newSelectionRow = min(row, filteredItems.count - 1)
+            tableView.selectRowIndexes(IndexSet(integer: newSelectionRow), byExtendingSelection: false)
+        }
+        
+        // Save changes to disk
+        saveClipboardItems()
+        
+        // Update status
+        updateStatusLabel("Item removed")
+        
+        // Resume clipboard monitoring after a short delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.resumeClipboardMonitoring()
+        }
+    }
 }
 
 // Custom table view class that handles key events better
@@ -958,9 +1030,6 @@ extension ClipboardManagerWindow: NSTableViewDataSource, NSTableViewDelegate {
         let timestampLabel = cellView?.viewWithTag(300) as? NSTextField
         let dayNameLabel = cellView?.viewWithTag(301) as? NSTextField
         let removeButton = cellView?.viewWithTag(400) as? NSButton
-        
-        // Store the row in the button's tag for later retrieval
-        removeButton?.rowIndex = row
         
         // Update timestamp
         timestampLabel?.stringValue = item.timeWithSecondsString
@@ -1097,33 +1166,5 @@ extension ClipboardManagerWindow: NSTableViewDataSource, NSTableViewDelegate {
         case .image, .webImage:
             return 120 // Taller row for image preview
         }
-    }
-    
-    // MARK: - Item Removal
-    
-    @objc func removeClipboardItem(_ sender: NSButton) {
-        let row = sender.rowIndex
-        guard row >= 0 && row < filteredItems.count else {
-            return
-        }
-        
-        let itemToRemove = filteredItems[row]
-        
-        // Remove from filtered items
-        filteredItems.remove(at: row)
-        
-        // Find and remove from main clipboardItems array
-        if let mainIndex = clipboardItems.firstIndex(where: { $0.id == itemToRemove.id }) {
-            clipboardItems.remove(at: mainIndex)
-        }
-        
-        // Update the UI
-        tableView.removeRows(at: IndexSet(integer: row), withAnimation: .slideUp)
-        
-        // Save changes to disk
-        saveClipboardItems()
-        
-        // Update status
-        updateStatusLabel("Item removed")
     }
 } 

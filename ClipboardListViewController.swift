@@ -197,16 +197,15 @@ class ClipboardListViewController: NSViewController, NSTableViewDataSource, NSTa
             cellView?.addSubview(dayNameLabel)
             
             // Add remove button
-            let removeButton = NSButton(title: "Delete", target: self, action: #selector(removeClipboardItem(_:)))
+            let removeButton = NSButton(title: "", target: self, action: #selector(removeClipboardItem(_:)))
             removeButton.translatesAutoresizingMaskIntoConstraints = false
-            removeButton.bezelStyle = .rounded
+            removeButton.bezelStyle = .inline
             removeButton.controlSize = .small
-            removeButton.wantsLayer = true
-            removeButton.layer?.backgroundColor = NSColor.systemRed.cgColor
-            removeButton.layer?.cornerRadius = 4
+            removeButton.image = NSImage(systemSymbolName: "trash", accessibilityDescription: "Delete")
+            removeButton.isBordered = false
+            removeButton.contentTintColor = NSColor.secondaryLabelColor
             removeButton.tag = 400 // Tag for later retrieval
             removeButton.toolTip = "Remove this item"
-            removeButton.contentTintColor = NSColor.white
             cellView?.addSubview(removeButton)
             
             // Create text field
@@ -252,8 +251,8 @@ class ClipboardListViewController: NSViewController, NSTableViewDataSource, NSTa
                 // Remove button constraints
                 removeButton.trailingAnchor.constraint(equalTo: timestampLabel.leadingAnchor, constant: -8),
                 removeButton.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
-                removeButton.widthAnchor.constraint(equalToConstant: 55),
-                removeButton.heightAnchor.constraint(equalToConstant: 20),
+                removeButton.widthAnchor.constraint(equalToConstant: 22),
+                removeButton.heightAnchor.constraint(equalToConstant: 22),
                 
                 // Text field constraints
                 textField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
@@ -276,8 +275,8 @@ class ClipboardListViewController: NSViewController, NSTableViewDataSource, NSTa
         let dayNameLabel = cellView?.viewWithTag(301) as? NSTextField
         let removeButton = cellView?.viewWithTag(400) as? NSButton
         
-        // Store the item index in the button's tag
-        removeButton?.rowIndex = row
+        // Store the row as the button's tag for later retrieval
+        removeButton?.tag = row
         
         // Update timestamp
         timestampLabel?.stringValue = item.relativeTimeString + " (" + item.timeWithSecondsString + ")"
@@ -349,16 +348,44 @@ class ClipboardListViewController: NSViewController, NSTableViewDataSource, NSTa
     // MARK: - Item Removal
     
     @objc func removeClipboardItem(_ sender: NSButton) {
-        let row = sender.rowIndex
+        // Get the parent cell view
+        guard let cellView = sender.superview as? NSTableCellView else {
+            return
+        }
+        
+        // Find the row for this cell
+        let row = tableView.row(for: cellView)
+        if row == -1 {
+            return
+        }
+        
         guard row >= 0 && row < clipboardItems.count else {
             return
+        }
+        
+        // Check if this is the selected row (currently in clipboard)
+        let isSelectedRow = (row == tableView.selectedRow)
+        
+        // If this is the selected row, deselect it first
+        if isSelectedRow {
+            tableView.deselectRow(row)
+            
+            // Clear the system clipboard if removing the currently selected item
+            NSPasteboard.general.clearContents()
         }
         
         // Remove from clipboardItems array
         clipboardItems.remove(at: row)
         
         // Update the UI
-        tableView.removeRows(at: IndexSet(integer: row), withAnimation: .slideUp)
+        tableView.reloadData()
+        
+        // If we have items and the removed item was selected, select a new item
+        if isSelectedRow && clipboardItems.count > 0 {
+            // Select the same row (now containing the next item) or the last item if that's not possible
+            let newSelectionRow = min(row, clipboardItems.count - 1)
+            tableView.selectRowIndexes(IndexSet(integer: newSelectionRow), byExtendingSelection: false)
+        }
         
         // Save changes to disk
         storageManager.saveItems(clipboardItems)
