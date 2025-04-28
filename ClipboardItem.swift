@@ -100,6 +100,12 @@ struct ClipboardItem: Equatable, Codable {
         
         // Then check for text
         else if let text = pasteboard.string(forType: .string) {
+            // Skip empty or whitespace-only text
+            let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmedText.isEmpty {
+                return nil
+            }
+            
             // Check if the text is a URL
             if let url = URL(string: text), url.scheme != nil {
                 return ClipboardItem(type: .text, textContent: text, sourceURL: url)

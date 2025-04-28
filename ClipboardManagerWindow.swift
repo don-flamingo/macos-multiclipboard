@@ -543,12 +543,12 @@ class ClipboardManagerWindow: NSWindowController {
     }
     
     private func setupClipboardMonitoring() {
-        NSPasteboard.general.clearContents()
-        let _ = NSPasteboard.general.writeObjects([NSString(string: "")])
+        // Track the initial state of the clipboard without adding an empty item
+        let initialChangeCount = NSPasteboard.general.changeCount
         
-        // Start monitoring timer
-        clipboardMonitorTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            self?.checkForPasteboardChanges()
+        // Start monitoring timer with a reference to the initial state
+        clipboardMonitorTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self, initialChangeCount] _ in
+            self?.checkForPasteboardChanges(initialChangeCount: initialChangeCount)
         }
     }
     
@@ -559,8 +559,11 @@ class ClipboardManagerWindow: NSWindowController {
     
     private func resumeClipboardMonitoring() {
         if clipboardMonitorTimer == nil {
-            clipboardMonitorTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-                self?.checkForPasteboardChanges()
+            // Get the current change count to avoid re-detecting the same item
+            let currentChangeCount = NSPasteboard.general.changeCount
+            
+            clipboardMonitorTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self, currentChangeCount] _ in
+                self?.checkForPasteboardChanges(initialChangeCount: currentChangeCount)
             }
         }
     }
@@ -573,8 +576,19 @@ class ClipboardManagerWindow: NSWindowController {
         }
     }
     
-    private func checkForPasteboardChanges() {
+    private func checkForPasteboardChanges(initialChangeCount: Int = 0) {
+        // Get the current change count and skip if it hasn't changed since our tracked count
+        let currentChangeCount = NSPasteboard.general.changeCount
+        if currentChangeCount <= initialChangeCount {
+            return
+        }
+        
         if let newItem = ClipboardItem.fromPasteboard(NSPasteboard.general) {
+            // Skip empty text items
+            if newItem.type == .text && (newItem.textContent == nil || newItem.textContent?.isEmpty == true) {
+                return
+            }
+            
             // Check if we already have this item
             let isAlreadyPresent: Bool
             
