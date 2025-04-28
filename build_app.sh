@@ -17,6 +17,12 @@ cp .build/release/ClipboardManager "$APP_NAME/Contents/MacOS/"
 # Copy Info.plist
 cp Info.plist "$APP_NAME/Contents/"
 
+# Copy Icon
+cp IconConversion/ClipboardManager.icns "$APP_NAME/Contents/Resources/"
+
+# Remove the old Assets.xcassets - not needed for icns file approach
+# cp -R Assets.xcassets "$APP_NAME/Contents/Resources/"
+
 echo "App bundle created: $APP_NAME"
 echo "To run, double-click the app or run:"
 echo "open $APP_NAME" 
