@@ -109,7 +109,14 @@ class ClipboardManagerWindow: NSWindowController {
             case kVK_Escape: // Escape key
                 self.closeWindow()
                 return nil // Consume event
-                
+
+            case kVK_ANSI_D: // Cmd+D to delete selected item
+                if event.modifierFlags.contains(.command) {
+                    self.deleteSelectedClipboardItem()
+                    return nil // Consume event
+                }
+                return event
+            
             default:
                 return event
             }
@@ -908,6 +915,56 @@ class ClipboardManagerWindow: NSWindowController {
         // Update status
         updateStatusLabel("Item removed")
         
+        // Resume clipboard monitoring after a short delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.resumeClipboardMonitoring()
+        }
+    }
+    
+    // Add this new method to handle deleting the selected item
+    private func deleteSelectedClipboardItem() {
+        let selectedRow = tableView.selectedRow
+        guard selectedRow >= 0 && selectedRow < filteredItems.count else { return }
+
+        // Temporarily pause clipboard monitoring
+        pauseClipboardMonitoring()
+
+        let itemToRemove = filteredItems[selectedRow]
+        let isSelectedRow = (selectedRow == tableView.selectedRow)
+
+        // If this is the selected row, deselect it first
+        if isSelectedRow {
+            tableView.deselectRow(selectedRow)
+        }
+
+        // Remove from filtered items
+        filteredItems.remove(at: selectedRow)
+
+        // Find and remove from main clipboardItems array
+        if let mainIndex = clipboardItems.firstIndex(where: { $0.id == itemToRemove.id }) {
+            clipboardItems.remove(at: mainIndex)
+        }
+
+        // Clear the pasteboard if we're removing the currently selected item
+        if isSelectedRow {
+            NSPasteboard.general.clearContents()
+        }
+
+        // Update the UI
+        tableView.reloadData()
+
+        // If we have items and the removed item was selected, select a new item
+        if isSelectedRow && filteredItems.count > 0 {
+            let newSelectionRow = min(selectedRow, filteredItems.count - 1)
+            tableView.selectRowIndexes(IndexSet(integer: newSelectionRow), byExtendingSelection: false)
+        }
+
+        // Save changes to disk
+        saveClipboardItems()
+
+        // Update status
+        updateStatusLabel("Item removed")
+
         // Resume clipboard monitoring after a short delay
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             self?.resumeClipboardMonitoring()
